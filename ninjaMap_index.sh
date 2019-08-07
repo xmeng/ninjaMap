@@ -41,7 +41,8 @@ minAlnCov="${minAlnCov:-0}"
 # fastq1=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R1_001.fastq.gz
 # fastq2=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R2_001.fastq.gz
 
-S3DBPATH="s3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/20190720_00_NinjaIndex/uniform10x/index/ninjaIndex"
+#S3DBPATH="s3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/20190720_00_NinjaIndex/uniform10x/index/ninjaIndex"
+S3DBPATH="s3://czbiohub-microbiome/Xiandong_Meng/Test"
 REFDBNAME="uniform10x_ninjaIndex.ninjaIndex"
 BINMAP_FILENAME="uniform10x_ninjaIndex.ninjaIndex.binmap.csv"
 SAMPLE_NAME=$(basename ${S3OUTPUTPATH})
