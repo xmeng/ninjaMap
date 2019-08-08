@@ -44,6 +44,7 @@ Comes in two flavors.
     - Start with `ninjaIndex`, the current setup has a circular dependency on reference fasta files!
 2. Develop a CloudFormation template with appropriate bucket, job queue and compute environment access.
 3. Make the entire process more coherent and streamlined.
+4. Add Travis CI on Dev branch
 
 ## Questions / Concerns
 
