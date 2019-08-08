@@ -167,7 +167,7 @@ samtools index -@ ${coreNum} ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam
 #   supplementary alignment (0x800)
 # samtools view -F 3328 -q 10 Dorea-longicatena-DSM-13814.processed.bam | cut -f1 | sort | uniq | wc -l
 
-python ${scriptFolder}/ninjaMap.py \
+python ${scriptFolder}/ninjaMap_naive.py \
     -bam ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam \
     -bin ${referenceNameFile} \
     -out ${NINJA_OUTPUT}/${OUTPUT_PREFIX}.abundance.tsv \
