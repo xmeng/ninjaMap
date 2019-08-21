@@ -676,6 +676,10 @@ for aln in bamfile.fetch(until_eof=True):
 bamfile.close()
 
 Reads.total_reads_aligned = len(total_reads)
+if Reads.total_reads_aligned == 0:
+    logging.critical(f'0 reads aligned to the reference database. Please check the BAM file or the database used.',)
+    sys.exit(1)
+
 Reads.reads_w_perfect_alignments = len(perfect_alignment.keys())
 logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).', 
     Reads.reads_w_perfect_alignments,
