@@ -188,6 +188,7 @@ class Strains:
         self.uniquely_covered_bases = 0
         self.uniquely_covered_depth = 0
         self.adj_primary_wt = 0
+        self.weighted_base_depth = 0
         
         self.escrow_covered_bases = 0
         self.escrow_covered_depth = 0
@@ -300,6 +301,7 @@ class Strains:
                 # Only calculate depth from reads with perfect alignment(singular or escrow).
                 wt_base_depth += bin_dict[read_unique_name]
                 self.total_covered_depth += 1
+                self.weighted_base_depth += wt_base_depth
 
         return wt_base_depth
     
@@ -381,20 +383,7 @@ class Strains:
         percent_coverage = self.total_covered_bases * 100 / self.genome_size
         coverage_depth = self.total_covered_depth/self.genome_size
         
-        # per_base_singular_depth = self.uniquely_covered_depth / self.uniquely_covered_bases
-        # per_base_escrow_depth = self.escrow_covered_depth / self.escrow_covered_bases
-
-        wt_coverage_depth = 0
-        if (self.uniquely_covered_bases + self.escrow_covered_bases) > 0:
-            # unique_depth_per_base = self.uniquely_covered_depth / (self.uniquely_covered_bases + self.escrow_covered_bases)
-            # escrow_depth_per_base = self.escrow_covered_depth / (self.uniquely_covered_bases + self.escrow_covered_bases)
-            # wt_coverage_depth = (unique_depth_per_base + escrow_depth_per_base) #/ self.genome_size
-            unique_depth_per_base = self.uniquely_covered_depth * self.uniquely_covered_bases / (self.uniquely_covered_bases + self.escrow_covered_bases)
-            escrow_depth_per_base = self.escrow_covered_depth * self.escrow_covered_bases / (self.uniquely_covered_bases + self.escrow_covered_bases)
-            wt_coverage_depth = (unique_depth_per_base + escrow_depth_per_base) / self.genome_size
-            # wt_coverage_depth = (per_base_singular_depth + per_base_escrow_depth) * self.total_covered_bases / self.genome_size
-        # 'Lib_Norm_Abundance' : 100*self.aln_norm_abundance,
-        # 'Genome_Size_Lib_Norm_Abundance' : 100*self.genome_norm_abundance,
+        wt_coverage_depth = self.weighted_base_depth / self.genome_size
 
         return pd.DataFrame(
                     index = [self.name],
