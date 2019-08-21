@@ -678,6 +678,10 @@ for aln in bamfile.fetch(until_eof=True):
 bamfile.close()
 
 Reads.total_reads_aligned = len(total_reads)
+if Reads.total_reads_aligned == 0:
+    logging.critical(f'0 reads aligned to the reference database. Please check the BAM file or the database used.',)
+    sys.exit(1)
+
 Reads.reads_w_perfect_alignments = len(perfect_alignment.keys())
 logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).', 
     Reads.reads_w_perfect_alignments,
@@ -740,7 +744,7 @@ if len(read_objects.keys()) != Reads.reads_w_perfect_alignments:
     Reads.reads_w_perfect_alignments,
     len(read_objects.keys())
     )    
-    sys.exit()
+    sys.exit(1)
 
 ###############################################################################
 # Processing the reads that mapped exclusively to a single strain
@@ -803,7 +807,7 @@ if Reads.reads_w_perfect_alignments != (Reads.total_escrow_reads + Reads.total_s
     (Reads.total_escrow_reads + Reads.total_singular_reads_in_pairs),
     Reads.total_singular_reads_in_pairs,
     Reads.total_escrow_reads)
-    sys.exit()
+    sys.exit(1)
 
 del read_objects
 ###############################################################################
@@ -900,7 +904,7 @@ if singular_fraud_alert or escrow_fraud_alert:
     logging.critical('[FATAL] There were signs of voter fraud. See the votes file (%s) for the complete picture.', vote_file)
     logging.critical("\tVoter fraud committed by " +str(num_singular_fraud_reads)+ " out of " +str(Reads.total_singular_reads_in_pairs)+ " singular reads in pairs")
     logging.critical("\tVoter fraud committed by " +str(num_fraud_reads)+ " out of " +str(Reads.total_escrow_reads)+ " escrow reads")
-    sys.exit("Voter Fraud Detected!")
+    sys.exit(1)
 
 ###############################################################################
 # Sanity Check
