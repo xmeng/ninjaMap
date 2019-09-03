@@ -20,6 +20,7 @@ def helpMessage() {
     The typical command for running the pipeline is as follows:
 
     nextflow run ninjaindex.nf --genomes 'path/to/*.fna' -profile docker
+    nextflow run main.nf --genomes 's3://path/to/*.fna' --outdir 's3://path/to/' -profile czbiohub_aws
 
     Mandatory arguments:
       --genomes                     Path to reference genome directory (must be surrounded with quotes)
@@ -64,18 +65,20 @@ if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
 }
 
 
-if( workflow.profile == 'awsbatch') {
+if( workflow.profile == 'awsbatch'){ // || workflow.profile == 'czbiohub_aws' ) {
   // AWSBatch sanity checking
   if (!params.awsqueue || !params.awsregion) exit 1, "Specify correct --awsqueue and --awsregion parameters on AWSBatch!"
   // Check outdir paths to be S3 buckets if running on AWSBatch
   // related: https://github.com/nextflow-io/nextflow/issues/813
   if (!params.outdir.startsWith('s3:')) exit 1, "Outdir not on S3 - specify S3 Bucket to run on AWSBatch!"
   // Prevent trace files to be stored on S3 since S3 does not support rolling files.
-  if (workflow.tracedir.startsWith('s3:')) exit 1, "Specify a local tracedir or run without trace! S3 cannot be used for tracefiles."
+  if (params.tracedir.startsWith('s3:')) exit 1, "Specify a local tracedir or run without trace! S3 cannot be used for tracefiles."
 }
 
+
+
 // Stage config files
-ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
+//ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
 
 /*
  * Create a channel for input genome files
@@ -83,11 +86,11 @@ ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
 Channel
   	.fromPath(params.genomes)
   	.ifEmpty { exit 1, "Cannot find matching reads" }
-  	.println()
+  	//.println()
 
 genome_files = Channel.fromPath(params.genomes)
 //split it into three channels
-genome_files.into { genomes_ch1; genomes_ch2; genomes_ch3}
+genome_files.into {genomes_ch2; genomes_ch3}
 
 
 // Header log info
@@ -103,6 +106,7 @@ summary['Launch dir']       = workflow.launchDir
 summary['Working dir']      = workflow.workDir
 summary['Script dir']       = workflow.projectDir
 summary['User']             = workflow.userName
+summary['Docs dir']         = "$baseDir/docs/output.md"
 if(workflow.profile == 'awsbatch'){
    summary['AWS Region']    = params.awsregion
    summary['AWS Queue']     = params.awsqueue
@@ -246,7 +250,6 @@ filtered_genome_ch
 */
 
 process bowtie2_mapping {
-    echo true
     tag "$filtered_fa"
 		publishDir "${params.outdir}/bowtie2_mapping", mode:'copy'
     input:
@@ -258,14 +261,13 @@ process bowtie2_mapping {
 
     script:
     """
-		echo $filtered_fa $fq1 $fq2
     run_bowtie2.sh $filtered_fa $fq1 $fq2 &> bowtie2.log
     """
 }
 
 //bam_ch.view()
 
-bam_ch.into { bam_ch1; bam_ch2}
+//bam_ch.into { bam_ch1; bam_ch2}
 /*
 *
 STEP 4
@@ -278,12 +280,12 @@ process generate_merged_BAM_file {
 	publishDir "${params.outdir}/mergedBAMs", mode:'copy'
 
   input:
-  file bamlist from bam_ch1.collect()
+  file bamlist from bam_ch.collect()
   //file bamf from bam_ch2
 
   output:
   //file "bamfiles.list" into bam_list_ch
-	file "uniformed.merged.bam" optional true
+	file "uniform.merged.bam" optional true
 
 	when:
 	//bamf.size() > 1000
@@ -308,6 +310,7 @@ process generate_merged_BAM_file {
 /*
  * STEP 5 - Output Description HTML
  */
+/*
 process output_documentation {
     publishDir "${params.outdir}/pipeline_info", mode: 'copy'
 
@@ -322,7 +325,7 @@ process output_documentation {
     markdown_to_html.r $output_docs results_description.html
     """
 }
-
+*/
 
 
 /*
@@ -391,7 +394,7 @@ workflow.onComplete {
     }
 
     // Write summary e-mail HTML to a file
-    def output_d = new File( "${params.outdir}/pipeline_info/" )
+    /*def output_d = new File( "${params.outdir}/pipeline_info/" )
     if( !output_d.exists() ) {
       output_d.mkdirs()
     }
@@ -399,7 +402,7 @@ workflow.onComplete {
     output_hf.withWriter { w -> w << email_html }
     def output_tf = new File( output_d, "pipeline_report.txt" )
     output_tf.withWriter { w -> w << email_txt }
-
+*/
     c_reset = params.monochrome_logs ? '' : "\033[0m";
     c_purple = params.monochrome_logs ? '' : "\033[0;35m";
     c_green = params.monochrome_logs ? '' : "\033[0;32m";
