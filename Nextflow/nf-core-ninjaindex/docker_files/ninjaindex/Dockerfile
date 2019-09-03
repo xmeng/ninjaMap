@@ -6,7 +6,7 @@ LABEL authors="Xiandong Meng" \
 RUN conda update -n base -c defaults conda
 
 # Install samtools bamtools biopython
-RUN conda install -c bioconda -y bamtools
+RUN conda install -c bioconda -y bamtools samtools
 RUN conda install -c conda-forge -y awscli biopython r
 
 
