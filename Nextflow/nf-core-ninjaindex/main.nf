@@ -175,6 +175,9 @@ process get_software_versions {
 genomes_combined = Channel
     			.fromPath(params.genomes)
     			.collectFile(name: 'all_genomes.fa')
+
+//split it into two channels
+genomes_combined.into { genomes_combined1; genomes_combined2 }
 /*
 *
     STEP 1.2
@@ -201,6 +204,36 @@ process grinder_fastq {
 }
 
 
+//split it into two channels
+zipped_fq.into { zipped_fq1; zipped_fq2 }
+/*
+*
+   STEP 1.3
+   Generate a SAM file header for aligning reads to all_genome reference
+*/
+
+// select 1 set of fastq files only for mapping
+zipped_fq1
+				 .take( 1 )
+				 .set{ selected_fq }
+
+process bowtie2_mapping_sam_header {
+    echo true
+    tag "$fq1"
+
+		publishDir "${params.outdir}/sam_header", mode:'copy'
+		input:
+		file all_genome from genomes_combined1.collect()
+  	set file(fq1), file(fq2) from selected_fq
+
+    output:
+    file "tmp_*/Sync/bowtie2/*.header.sam" into sam_ch
+
+    script:
+    """
+    run_bowtie2_header.sh $all_genome $fq1 $fq2 &> header_sam.log
+    """
+}
 /*
 *
    STEP 2
@@ -213,7 +246,7 @@ process generate_filtered_fasta {
   publishDir "${params.outdir}/filtered_genomes", mode:'copy', overwrite: true
   tag "$target_fa"
   input:
-	file all_genome from genomes_combined.collect()
+	file all_genome from genomes_combined2.collect()
 	file target_fa from genomes_ch3
 
   output:
@@ -229,7 +262,7 @@ process generate_filtered_fasta {
 
 
 // Sort files in channels to match fastq vs. genomes
-zipped_fq
+zipped_fq2
          .toSortedList { file -> file[0].name }
 				 .flatten()
 				 .buffer( size: 2 )
@@ -264,10 +297,33 @@ process bowtie2_mapping {
     run_bowtie2.sh $filtered_fa $fq1 $fq2 &> bowtie2.log
     """
 }
-
 //bam_ch.view()
-
 //bam_ch.into { bam_ch1; bam_ch2}
+
+/*
+*
+STEP 3.5
+  		perform reheader for each bam file
+*/
+process reheader_BAM_file {
+  //errorStrategy 'ignore'
+  tag "$bam"
+	publishDir "${params.outdir}/reheaderBAMs", mode:'copy'
+
+  input:
+	file header_sam from sam_ch.collect()
+	file bam from bam_ch
+
+  output:
+  file "${bam.baseName}.reheader.bam" into reheader_bam_ch
+
+	script:
+	"""
+	samtools reheader -i $header_sam $bam > ${bam.baseName}.reheader.bam
+
+  """
+}
+
 /*
 *
 STEP 4
@@ -280,8 +336,8 @@ process generate_merged_BAM_file {
 	publishDir "${params.outdir}/mergedBAMs", mode:'copy'
 
   input:
-  file bamlist from bam_ch.collect()
-  //file bamf from bam_ch2
+  file bamlist from reheader_bam_ch.collect()
+
 
   output:
   //file "bamfiles.list" into bam_list_ch
@@ -299,7 +355,6 @@ process generate_merged_BAM_file {
 	done
   if [ -e bamfiles.list ]
 	then
-    touch uniform.merged.bam
 		bamtools merge -list bamfiles.list -out uniform.merged.bam &> bamtools.log &
 	fi
   """
