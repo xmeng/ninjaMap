@@ -263,7 +263,7 @@ class Strains:
         cov_bamfile.close()
         fasta.close()
         
-        return
+        return self.uniquely_covered_depth/self.genome_size
     
     def calculate_escrow_coverage (self, bamfile_name, fasta_file):
         if self.num_escrow_reads == 0:
@@ -286,7 +286,7 @@ class Strains:
                         self.escrow_covered_depth += base_cov_contribution
 
         cov_bamfile.close()
-        return
+        return self.escrow_covered_depth/self.genome_size
 
     def _calc_base_depth(self, pileupcolumn, bin_dict):
         wt_base_depth = 0
@@ -545,7 +545,7 @@ class Reads:
 
     @staticmethod
     def is_perfect_alignment(aln):
-        edit_dist = dict(aln.tags)['NM']
+        edit_dist = aln.get_tag('NM')
         query_len = aln.query_length
         ref_start = aln.reference_start
         ref_end = aln.reference_end
@@ -616,7 +616,7 @@ class Reads:
 ###############################################################################
 
 logging.info('Processing the Bin Map file: %s ...', binmap_file)
-# Header = ('Strain_Name,Strain_Weight,Contig_Name,Contig_Length\n')
+# Header = ('Strain_Name,Contig_Name,Contig_Length\n')
 all_strains = defaultdict(list)
 with open(binmap_file, "r") as binmap:
     for line in binmap:
@@ -819,7 +819,8 @@ i = 0
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
-    strain.calculate_singular_coverage(bamfile_name, fastafile_name)
+    my_cov = strain.calculate_singular_coverage(bamfile_name, fastafile_name)
+    logging.info(f"\t... {my_cov*100}x\n")
 
 ###############################################################################
 # Use the strain abundance distribution based on Singular alignments to weight
@@ -931,9 +932,10 @@ i = 0
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d]Searching for escrow support for :\t%s",i, Strains.total_strains, name)
-    strain.calculate_escrow_coverage(bamfile_name, fastafile_name)
-    strain.calculate_read_fraction()
-
+    my_cov = strain.calculate_escrow_coverage(bamfile_name, fastafile_name)
+    logging.info(f"\t... Calculated escrow coverage : {my_cov}x")
+    my_frac = strain.calculate_read_fraction()
+    logging.info(f"\t... Calculated relative abundance : {my_frac}%%")
     strain_stats_df = strain.compile_general_stats()
     if strain_stats_df is not None:
         stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)

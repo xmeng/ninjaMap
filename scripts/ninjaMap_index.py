@@ -266,7 +266,7 @@ class Strains:
                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
                         self.uniquely_covered_depth += base_cov_contribution
         cov_bamfile.close()
-        return
+        return self.uniquely_covered_depth/self.genome_size
     
     def calculate_escrow_coverage (self, bamfile_name):
         if self.num_escrow_reads == 0:
@@ -287,7 +287,7 @@ class Strains:
                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
                         self.escrow_covered_depth += base_cov_contribution
         cov_bamfile.close()
-        return
+        return self.escrow_covered_depth/self.genome_size
 
     def _calc_base_depth(self, pileupcolumn, bin_dict):
         wt_base_depth = 0
@@ -550,7 +550,7 @@ class Reads:
 
     @staticmethod
     def is_perfect_alignment(aln):
-        edit_dist = dict(aln.tags)['NM']
+        edit_dist = aln.get_tag('NM')
         query_len = aln.query_length
         ref_start = aln.reference_start
         ref_end = aln.reference_end
@@ -818,7 +818,8 @@ i = 0
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
-    strain.calculate_singular_coverage(bamfile_name)
+    my_cov = strain.calculate_singular_coverage(bamfile_name)
+    logging.info(f"\t... Calculated singular coverage : {my_cov}x")
 
 ###############################################################################
 # Use the strain abundance distribution based on Singular alignments to weight
@@ -935,16 +936,18 @@ i = 0
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d]Searching for escrow support for :\t%s",i, Strains.total_strains, name)
-    strain.calculate_escrow_coverage(bamfile_name)
-    strain.calculate_read_fraction()
-
+    my_cov = strain.calculate_escrow_coverage(bamfile_name)
+    logging.info(f"\t... Calculated escrow coverage : {my_cov}x")
+    my_frac = strain.calculate_read_fraction()
+    logging.info(f"\t... Calculated relative abundance : {my_frac}%%")
     strain_stats_df = strain.compile_general_stats()
     if strain_stats_df is not None:
         stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)
-
+    logging.info("\t... Calculated all strain stats")
     strain_abundance_df = strain.compile_by_abundance()
     if strain_abundance_df is not None:
         abundance_df = pd.DataFrame.add(abundance_df, strain_abundance_df, fill_value = 0)
+    logging.info("\t... Escrow calculation complete.")
 
 logging.info('Writing strain stats file ...')
 stats_df.to_csv(strain_stats_file, index_label='Strain_Name')
