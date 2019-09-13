@@ -30,6 +30,8 @@ import argparse, subprocess, os, boto3
 import pandas as pd
 import re
 
+from pathlib import Path
+
 usage = "USAGE: python create_bracken_submission_commands.py [options] seedfile s3output_root output_command"
 
 # Making default argument list structures
@@ -38,7 +40,8 @@ p.add_argument(dest='seedfile', action='store', type=str)
 p.add_argument(dest='s3output_root', type=str) # include s3://...
 p.add_argument(dest='output_command', action='store', type=str)
 p.add_argument('--method', dest='method', action='store', type=str, required = True)
-p.add_argument('-i', '--image', dest='image', action='store', type=str, default='sunitjain/ninjamap:latest')
+p.add_argument('--master', dest='latest_image', action='store', type=str, default='sunitjain/ninjamap:latest')
+p.add_argument('--dev', dest='dev_image', action='store', default='')
 p.add_argument('-m', '--memory', dest='memory', action='store', type=int, default=128000)
 p.add_argument('-c', '--core', dest='vcpus', action='store', type=int, default=16)
 p.add_argument('-s', '--storage', dest='storage', action='store', type=int, default=500) # the minimum for AWS is 500
@@ -56,13 +59,20 @@ elif arguments.method == 'mates':
 elif arguments.method == 'indexed':
     script = "./ninjaMap_index.sh"
 else:
-    print(f'{arguments.method} is not a valid option.Please use one of the following terms: original, mates or indexed')
+    print(f'{arguments.method} is not a valid option. Please use one of the following terms: "original", "mates" or "indexed"')
+
+docker_image = arguments.latest_image
+if arguments.dev_image != '':
+    docker_image_file = Path(arguments.dev_image)
+    if docker_image_file.is_file():
+        with open(docker_image_file) as f:
+            docker_image = f.readline().strip()
 
 # Create base command string aegea_batch or aegea_batch_demux
 mem_per_core=str(int(arguments.memory/(arguments.vcpus*1000)))+'G'
 s3_bucket = 's3://czbiohub-microbiome/'
 base_string = 'aegea batch submit --retry-attempts '+ str(arguments.max_retries)+ \
-    ' --queue '+arguments.queue+' --image '+arguments.image+ \
+    ' --queue '+arguments.queue+' --image '+docker_image+ \
     ' --storage /mnt='+str(arguments.storage)+ \
     ' --memory '+str(arguments.memory)+\
     ' --vcpus '+str(arguments.vcpus)+' '
