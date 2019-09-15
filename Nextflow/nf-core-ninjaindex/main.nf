@@ -187,7 +187,7 @@ genomes_combined.into { genomes_combined1; genomes_combined2 }
 */
 
 process grinder_fastq {
-  echo true
+
   tag "$fna"
 	publishDir "${params.outdir}/biogrinder_fastqs", mode:'copy'
 
@@ -283,6 +283,7 @@ filtered_genome_ch
 */
 
 process bowtie2_mapping {
+    cpus 4
     tag "$filtered_fa"
 		publishDir "${params.outdir}/bowtie2_mapping", mode:'copy'
     input:
@@ -341,7 +342,7 @@ process generate_merged_BAM_file {
 
   output:
   //file "bamfiles.list" into bam_list_ch
-	file "uniform.merged.bam" optional true
+	file "uniform.merged.bam"
 
 	when:
 	//bamf.size() > 1000
