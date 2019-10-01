@@ -1,0 +1,5 @@
+#AWS batch job using czbiohub_aws queue
+nextflow run main.nf --genomes 's3://czbiohub-microbiome/Xiandong_Meng/test/3genomes/*.fna' --outdir 's3://czbiohub-microbiome/Xiandong_Meng/test12' -profile czbiohub_aws
+
+# Run test case
+nextflow run main.nf -profile test

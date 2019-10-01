@@ -146,6 +146,7 @@ ${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style
  * Parse software version numbers
  */
 process get_software_versions {
+    errorStrategy 'ignore'
     publishDir "${params.outdir}/pipeline_info", mode: 'copy',
     saveAs: {filename ->
         if (filename.indexOf(".csv") > 0) filename
@@ -339,14 +340,18 @@ process generate_merged_BAM_file {
   input:
   file bamlist from reheader_bam_ch.collect()
 
-
   output:
-  //file "bamfiles.list" into bam_list_ch
-	file "uniform.merged.bam"
+  file "bamfiles.list"
+  file "uniform.merged.bam"
+  file "uniform.merged.sorted.bam"
+  file "uniform.merged.sorted.bam.bai"
 
 	when:
 	//bamf.size() > 1000
-
+  //bamtools merge -list bamfiles.list -out uniform.merged.bam &> bamtools.log &
+  //samtools sort uniform.merged.bam -o uniform.merged.sorted.bam
+  //samtools index uniform.merged.sorted.bam
+  //
 
   script:
   """
@@ -354,10 +359,9 @@ process generate_merged_BAM_file {
 	do
 				 echo \$PWD/\$bamfile >> bamfiles.list
 	done
-  if [ -e bamfiles.list ]
-	then
-		bamtools merge -list bamfiles.list -out uniform.merged.bam &> bamtools.log &
-	fi
+  samtools merge -b bamfiles.list uniform.merged.bam
+  samtools sort uniform.merged.bam -o uniform.merged.sorted.bam
+  samtools index uniform.merged.sorted.bam
   """
 }
 
@@ -367,6 +371,11 @@ process generate_merged_BAM_file {
  * STEP 5 - Output Description HTML
  */
 /*
+if [ -e bamfiles.list ]
+then
+  touch uniform.merged.bam
+
+fi
 process output_documentation {
     publishDir "${params.outdir}/pipeline_info", mode: 'copy'
 
