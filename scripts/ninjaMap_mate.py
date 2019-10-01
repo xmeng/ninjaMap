@@ -245,7 +245,7 @@ class Strains:
         
     def calculate_singular_coverage (self, bamfile_name, fasta_file):
         if self.num_singular_reads == 0:
-            return
+            return 0
         
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         fasta = pysam.FastaFile(fasta_file)
@@ -267,7 +267,7 @@ class Strains:
     
     def calculate_escrow_coverage (self, bamfile_name, fasta_file):
         if self.num_escrow_reads == 0:
-            return
+            return 0
         
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         fasta = pysam.FastaFile(fasta_file)
@@ -626,7 +626,7 @@ with open(binmap_file, "r") as binmap:
         all_strains[strain_name].append(contig_name)
 
 all_strain_obj = defaultdict(int)
-strains_list = list(all_strains.keys())
+strains_list = sorted(list(all_strains.keys()), key=str.lower)
 fasta = pysam.FastaFile(fastafile_name)
 bins = defaultdict()
 for strain_name in strains_list:
@@ -935,7 +935,7 @@ for name, strain in all_strain_obj.items():
     my_cov = strain.calculate_escrow_coverage(bamfile_name, fastafile_name)
     logging.info(f"\t... Calculated escrow coverage : {my_cov}x")
     my_frac = strain.calculate_read_fraction()
-    logging.info(f"\t... Calculated relative abundance : {my_frac}%%")
+    logging.info(f"\t... Calculated relative abundance : {my_frac}%")
     strain_stats_df = strain.compile_general_stats()
     if strain_stats_df is not None:
         stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)

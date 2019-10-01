@@ -41,8 +41,13 @@ minAlnCov="${minAlnCov:-0}"
 # fastq1=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R1_001.fastq.gz
 # fastq2=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R2_001.fastq.gz
 
-S3DBPATH=s3://czbiohub-microbiome/Synthetic_Community/Genome_References/Bowtie2Index_090718
-REFDBNAME=combined_104_reference_genomes
+# S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/Synthetic_Community/Genome_References/Bowtie2Index_090718"}
+# REFDBNAME=${REFDBNAME:-"combined_104_reference_genomes"}
+# STRAIN_MAP_FILENAME=${STRAIN_MAP_FILENAME:-"combined_104_contig_strain_map.txt"}
+
+S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20190911/scv2/db/"}
+REFDBNAME=${REFDBNAME:-"20190911_scv2"}
+STRAIN_MAP_FILENAME=${STRAIN_MAP_FILENAME:-"20190911_scv2.bin.tsv"}
 
 SAMPLE_NAME=$(basename ${S3OUTPUTPATH})
 
@@ -75,11 +80,13 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}" "${S3OUTPUTPATH}";
 adapterFile="adapters,phix"
 # offLimitRegions="./data/combined_excluded_regions_threshold9.bed"
 scriptFolder="./scripts"
-DBNAME=${LOCAL_DB_PATH}/${REFDBNAME}
+# BOWTIE2_DB=${LOCAL_DB_PATH}/${REFDBNAME}
+BOWTIE2_DB=${LOCAL_DB_PATH}/bowtie2_index/${REFDBNAME}
+REF_FASTA=${LOCAL_DB_PATH}/${REFDBNAME}.fna
 
 # Copy genome reference over
 aws s3 sync --quiet ${S3DBPATH}/ ${LOCAL_DB_PATH}/
-referenceNameFile=${LOCAL_DB_PATH}/combined_104_contig_strain_map.txt
+referenceNameFile=${LOCAL_DB_PATH}/${STRAIN_MAP_FILENAME}
 
 # Constant definitions for bbduk
 trimQuality="${trimQuality:-25}"
@@ -116,7 +123,7 @@ bowtie2 \
     -X ${maxInsert} \
     -k ${maxAlignments} \
     --threads ${coreNum} \
-    -x ${DBNAME} \
+    -x ${BOWTIE2_DB} \
     --no-mixed \
     --no-discordant \
     --end-to-end \
@@ -162,7 +169,7 @@ samtools index -@ ${coreNum} ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam
 python ${scriptFolder}/ninjaMap_mate.py \
     -bam ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam \
     -bin ${referenceNameFile} \
-    -fasta ${DBNAME}.fasta \
+    -fasta ${REF_FASTA} \
     -outdir ${NINJA_OUTPUT} \
     -prefix ${SAMPLE_NAME}
 
