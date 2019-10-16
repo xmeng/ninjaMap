@@ -19,7 +19,7 @@ def helpMessage() {
 
     The typical command for running the pipeline is as follows:
 
-    nextflow run ninjaindex.nf --genomes 'path/to/*.fna' -profile docker
+    nextflow run ninjaindex.nf --genomes 'path/to/*.fna' --outdir ./output -profile docker
     nextflow run main.nf --genomes 's3://path/to/*.fna' --outdir 's3://path/to/' -profile czbiohub_aws
 
     Mandatory arguments:
@@ -187,7 +187,7 @@ genomes_combined.into { genomes_combined1; genomes_combined2 }
 		Copy fastq files to S3 bucket
 */
 
-process grinder_fastq {
+/*process grinder_fastq {
 
   tag "$fna"
 	publishDir "${params.outdir}/biogrinder_fastqs", mode:'copy'
@@ -195,15 +195,37 @@ process grinder_fastq {
   input:
   file fna from genomes_ch2
   output:
-  set file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R1.fastq.gz"), file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R2.fastq.gz") into zipped_fq
+  */
+  //set file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R1.fastq.gz"), file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R2.fastq.gz") into zipped_fq
   //file "${fna.baseName}.fq" into fastq_ch
-
+/*
   script:
   """
   run_grinder.sh $fna
   """
 }
+*/
 
+/*
+ART generaes synthetic reads instead of grinder
+generate reads in fastq with zero-sequencing errors for a paired-end read simulation
+*/
+
+process art_fastq {
+
+  tag "$fna"
+	publishDir "${params.outdir}/art_fastqs", mode:'copy'
+
+  input:
+  file fna from genomes_ch2
+  output:
+  set file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R1.fastq.gz"), file ("tmp_*/Sync/paired_fastq/${fna.baseName}.R2.fastq.gz") into zipped_fq
+
+  script:
+  """
+  run_art.sh $fna
+  """
+}
 
 //split it into two channels
 zipped_fq.into { zipped_fq1; zipped_fq2 }
