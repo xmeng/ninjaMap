@@ -29,10 +29,9 @@ cp ${S3FASTA} ${LOCAL_FASTA}
 FWD="${PAIRED_FASTQ}/${PREFIX}.R1.fastq.gz"
 REV="${PAIRED_FASTQ}/${PREFIX}.R2.fastq.gz"
 
-# NUM_SEQS=$(grep -c ">" ${LOCAL_FASTA})
 COV_FOLD=${COV_FOLD:-10}
 
-# Grinder Command
+# ART Command
 /mnt/art_bin_MountRainier/art_illumina \
 -na \
 -ef \
@@ -44,6 +43,10 @@ COV_FOLD=${COV_FOLD:-10}
 -m 500 \
 -s 10 \
 -o "${PREFIX}" &> "${LOG_DIR}.log"
+
+# Get error free reads
+#java -jar $PICARD SamToFastq I=${PREFIX}_errFree.sam F=${PREFIX}1.fq F2=${PREFIX}2.fq
+picard SamToFastq I=${PREFIX}_errFree.sam F=${PREFIX}1.fq F2=${PREFIX}2.fq
 
 #compress fastq files
 gzip < ${PREFIX}1.fq > $FWD

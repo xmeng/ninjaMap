@@ -11,20 +11,24 @@ LABEL authors="Xiandong Meng" \
 USER root:root
 
 ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get clean && \
-    apt-get update && \
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y awscli pigz vim htop && \
     apt-get clean && \
     apt-get purge && \
     rm -rf /var/lib/apt/lists/* /tmp/*
 
+RUN conda install -c bioconda -y picard
+RUN conda clean -ya
+
 RUN mkdir -p /mnt
 WORKDIR /mnt
-
+ 
 #RUN wget https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz
 #RUN tar zxf artbinmountrainier2016.06.05linux64.tgz
 
-RUN curl https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz | tar xz
+RUN curl https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz --output - | tar xz
 WORKDIR /mnt
 
 ADD run_art.sh /usr/local/bin/run_art.sh

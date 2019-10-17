@@ -90,7 +90,7 @@ Channel
 
 genome_files = Channel.fromPath(params.genomes)
 //split it into three channels
-genome_files.into {genomes_ch2; genomes_ch3}
+genome_files.into {genomes_ch2; genomes_ch3; genomes_ch4}
 
 
 // Header log info
@@ -207,6 +207,7 @@ genomes_combined.into { genomes_combined1; genomes_combined2 }
 */
 
 /*
+STEP 1.2
 ART generaes synthetic reads instead of grinder
 generate reads in fastq with zero-sequencing errors for a paired-end read simulation
 */
@@ -250,6 +251,7 @@ process bowtie2_mapping_sam_header {
   	set file(fq1), file(fq2) from selected_fq
 
     output:
+    //file all_genome
     file "tmp_*/Sync/bowtie2/*.header.sam" into sam_ch
 
     script:
@@ -266,8 +268,9 @@ process bowtie2_mapping_sam_header {
 
 process generate_filtered_fasta {
   echo true
-  publishDir "${params.outdir}/filtered_genomes", mode:'copy', overwrite: true
   tag "$target_fa"
+  publishDir "${params.outdir}/filtered_genomes", mode:'copy', overwrite: true
+
   input:
 	file all_genome from genomes_combined2.collect()
 	file target_fa from genomes_ch3
@@ -365,8 +368,8 @@ process generate_merged_BAM_file {
   output:
   file "bamfiles.list"
   file "uniform.merged.bam"
-  file "uniform.merged.sorted.bam"
-  file "uniform.merged.sorted.bam.bai"
+  file "uniform.merged.sorted.bam" into merged_bam_ch
+  file "uniform.merged.sorted.bam.bai" into merged_bam_index_ch
 
 	when:
 	//bamf.size() > 1000
@@ -387,6 +390,32 @@ process generate_merged_BAM_file {
   """
 }
 
+/*
+STEP 5
+  		Generate final Ninja Index based on the merged bam file
+      NinjaIndex need bam index in the same direcroty even though the script
+      doesn't require the index as an input parameter
+*/
+process generate_Ninja_Index {
+  echo true
+  tag "$bam"
+	publishDir "${params.outdir}/NinjaIndex", mode:'copy'
+
+  input:
+  file bam from merged_bam_ch
+  file bam_index from merged_bam_index_ch
+  //file genome_fa from genomes_ch3.collect()
+  file 'fasta-dir/*' from genomes_ch4.toSortedList()
+
+  output:
+  file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
+  //echo ${params.genomes}
+
+  script:
+  """
+	ninjaIndex.sh $bam fasta-dir "final" $bam_index
+  """
+}
 
 
 /*

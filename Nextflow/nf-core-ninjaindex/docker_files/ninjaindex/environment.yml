@@ -1,5 +1,6 @@
 # You can use this file to create a conda environment for this pipeline:
 #   conda env create -f environment.yml
+#  bsae
 name: nf-core-ninjaindex-1.0dev
 channels:
   - conda-forge
@@ -7,4 +8,10 @@ channels:
   - defaults
 dependencies:
   # TODO nf-core: Add required software dependencies here
-  - bamtools=2.5.1
+  #- bamtools=2.5.1
+  - python=3.7
+  - pysam
+  - pandas
+  - biopython
+  - scipy
+  - numpy
