@@ -85,7 +85,7 @@ if( workflow.profile == 'awsbatch'){ // || workflow.profile == 'czbiohub_aws' ) 
  */
 Channel
   	.fromPath(params.genomes)
-  	.ifEmpty { exit 1, "Cannot find matching reads" }
+  	.ifEmpty { exit 1, "Cannot find matching genomes" }
   	//.println()
 
 genome_files = Channel.fromPath(params.genomes)
@@ -359,7 +359,7 @@ STEP 4
 */
 process generate_merged_BAM_file {
   //errorStrategy 'ignore'
-  tag "$bamlist"
+  tag "uniform.merged.sorted.bam"
 	publishDir "${params.outdir}/mergedBAMs", mode:'copy'
 
   input:
@@ -397,9 +397,9 @@ STEP 5
       doesn't require the index as an input parameter
 */
 process generate_Ninja_Index {
-  echo true
+  #echo true
   tag "$bam"
-	publishDir "${params.outdir}/NinjaIndex", mode:'copy'
+	publishDir "${params.outdir}/ninjaIndex", mode:'copy'
 
   input:
   file bam from merged_bam_ch
@@ -419,7 +419,7 @@ process generate_Ninja_Index {
 
 
 /*
- * STEP 5 - Output Description HTML
+ * STEP 6 - Output Description HTML
  */
 /*
 if [ -e bamfiles.list ]
