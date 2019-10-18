@@ -397,19 +397,16 @@ STEP 5
       doesn't require the index as an input parameter
 */
 process generate_Ninja_Index {
-  #echo true
   tag "$bam"
 	publishDir "${params.outdir}/ninjaIndex", mode:'copy'
 
   input:
   file bam from merged_bam_ch
   file bam_index from merged_bam_index_ch
-  //file genome_fa from genomes_ch3.collect()
   file 'fasta-dir/*' from genomes_ch4.toSortedList()
 
   output:
   file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
-  //echo ${params.genomes}
 
   script:
   """
