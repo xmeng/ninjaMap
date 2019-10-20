@@ -37,7 +37,7 @@ def intersection(list1, list2):
 ###############################################################################
 
 usage = """
-    USAGE: 
+    USAGE:
     python ninjaIndex.py \
 -bam input_bamfile \
 -fastadir folder with each genome in a separate file in fasta format. \
@@ -45,16 +45,16 @@ usage = """
 -log logfile.txt
     """
 
-p = argparse.ArgumentParser(   
+p = argparse.ArgumentParser(
     formatter_class=argparse.RawTextHelpFormatter,
     add_help=True,
     usage=argparse.SUPPRESS,
     description="""Description:
-This script will calculate the abundance of a strain in a defined microbial community. 
+This script will calculate the abundance of a strain in a defined microbial community.
 Usage: ninjaMap.py -bam name_sorted.bam -bin contig_strain_assignments.tsv -out abundance_table_output.tsv
 """,
     epilog="""Examples:
-python ninjaMap.py -bin contig_names_bin_map.txt -bam Bacteroides-sp-9-1-42FAA/Bacteroides-sp-9-1-42FAA.processed.sortedByCoord.bam -out Bacteroides-sp-9-1-42FAA.sorted.ninjaAbundance.tsv    
+python ninjaMap.py -bin contig_names_bin_map.txt -bam Bacteroides-sp-9-1-42FAA/Bacteroides-sp-9-1-42FAA.processed.sortedByCoord.bam -out Bacteroides-sp-9-1-42FAA.sorted.ninjaAbundance.tsv
 """)
 p.add_argument('-bam', dest='bamfile', action='store', type=str, required = True,
                 help='name sorted bam file.')
@@ -70,7 +70,7 @@ p.add_argument('-outdir', dest='outdir', action='store', type=str,
                 help='output directory')
 p.add_argument('-threads', dest='threads', action='store', type=str, default=1,
                 help='number of threads available for this job and subprocesses')
-p.add_argument('-debug', dest='debug', action='store_true', default=False,    
+p.add_argument('-debug', dest='debug', action='store_true', default=False,
                 help='save intermediate false positives bam file')
 
 args = vars(p.parse_args())
@@ -106,7 +106,7 @@ class Strains:
     total_genome_size = 0
     total_strains = 0
     total_uniquely_covered_bases = 0
-    
+
     def __init__(self, strain_name):
         self.name = os.path.basename(strain_name)
         self.num_singular_reads = 0
@@ -114,18 +114,18 @@ class Strains:
         self.genome_size = 0
         self.cum_primary_votes = 0
         self.uniqueness_score = 0
-        
+
         self.total_covered_bases = 0
         self.uniquely_covered_bases = 0
         self.adj_primary_wt = 0
         self.adj_primary_wt_2 = 0
         self.adj_primary_wt_3 = 0
-        
+
         self.aln_norm_abundance = 0
         self.genome_norm_abundance = 0
         self.adjusted_votes = 0
         self.singular_vote_conversion_rate = 0
-        
+
         self.contigs = defaultdict(int)
         self.singular_bin = defaultdict(int)
 
@@ -139,17 +139,17 @@ class Strains:
         # Not strictly necessary, but to avoid having both x==y and x!=y
         # True at the same time
         return not(self == other)
-        
+
     def add_contig(self, contig_name, contig_length):
         self.contigs[contig_name] = contig_length
         self.genome_size += contig_length
         self.num_contigs += 1
-        
+
     def add_paired_singular_vote(self, read_name, mate_name, read_vote = 1):
 #         print(str(self) +'\t:\t' + self.name +'\t:\t' + read.unique_name +'\t:\t'+ str(read_vote))
         # for R1
         self.singular_bin[read_name] += read_vote
-        self.cum_primary_votes += read_vote 
+        self.cum_primary_votes += read_vote
         self.num_singular_reads += 1
 
         # for R2
@@ -170,13 +170,13 @@ class Strains:
                 wt_base_depth += bin_dict[read_unique_name]
 
         return wt_base_depth
-        
+
     def calculate_singular_coverage (self, bamfile_name):
         if self.num_singular_reads == 0:
             return
-        
+
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
-        
+
         for contig_name in self.contigs.keys():
             for pileupcolumn in cov_bamfile.pileup(contig = contig_name, stepper = 'all', min_base_quality = 20):
                 base_cov_contribution = 0
@@ -196,20 +196,21 @@ class Strains:
         # a read is assigned to => Size of unique region in a genome compared to other genomes that this read maps.
         # This is a VERY costly operation to repeat millions of times, since it cannot be pre-calculated.
         # I have adjusted it to use the genome's absolute unique region compared to all genomes in the database.
-        self.adj_primary_wt = self.cum_primary_votes / self.uniquely_covered_bases
+        self.adj_primary_wt = self.cum_primary_votes / self.uniquely_covered_bases if self.uniquely_covered_bases != 0 else 0
+
         return self.adj_primary_wt
 
     def calculate_sunits_original_adjustment(self):
-        self.adj_primary_wt_2 = self.cum_primary_votes / Reads.total_reads_aligned
+        self.adj_primary_wt_2 = self.cum_primary_votes / Reads.total_reads_aligned if Reads.total_reads_aligned != 0 else 0
         return self.adj_primary_wt_2
 
     def calculate_mike_drop_penalty(self):
-        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases
+        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases if Strains.total_uniquely_covered_bases != 0 else 0
         return self.uniqueness_score
-    
+
     def calculate_adj_primary_wt_uniqueness_score(self):
         # Sunit's interpretation of Mike drop adjustment
-        self.adj_primary_wt_3 = (1 - self.uniqueness_score) * self.cum_primary_votes / Reads.total_reads_aligned
+        self.adj_primary_wt_3 = (1 - self.uniqueness_score) * self.cum_primary_votes / Reads.total_reads_aligned if Reads.total_reads_aligned != 0 else 0
         return self.adj_primary_wt_3
 class Reads:
     total_reads_aligned = 0
@@ -244,7 +245,7 @@ class Reads:
 
     def add_exact_match(self, strain):
         self.mapped_strains[strain] = strain.name
-    
+
     def put_pair_in_singular_bin(self, mate):
         self.in_singular_bin = True
         mate.in_singular_bin = True
@@ -279,15 +280,15 @@ class Parser:
         query_len = aln.query_length
         ref_start = aln.reference_start
         ref_end = aln.reference_end
-        
+
         # https://www.biostars.org/p/106126/
         return ((edit_dist == 0) and (query_len == aln.get_overlap(ref_start, ref_end)))
-    
+
     @staticmethod
     def parse_read_name(aln):
         '''
         Accept: AlignmentFile object from PySam
-        if read name has a '/', this is the old format. 
+        if read name has a '/', this is the old format.
         strip the content after the '/', return remaining
         else, return it as is.
         '''
@@ -297,7 +298,7 @@ class Parser:
             return str(aln.query_name)
         else:
             return str(key)
-        
+
     @staticmethod
     def get_unique_read_name(aln):
         orientation = ''
@@ -305,9 +306,9 @@ class Parser:
             orientation =  'fwd'
         else:
             orientation =  'rev'
-            
+
         return Parser.parse_read_name(aln) +'__'+ orientation
-    
+
     @staticmethod
     def get_unique_mate_name(aln):
         orientation = ''
@@ -315,9 +316,9 @@ class Parser:
             orientation =  'rev'
         else:
             orientation =  'fwd'
-            
+
         return Parser.parse_read_name(aln) +'__'+ orientation
-    
+
     @staticmethod
     def extract_read_info(aln):
         read_name = Parser.get_unique_read_name(aln)
@@ -346,7 +347,7 @@ class Parser:
                 perfect_alignment[read_name][strain_name] += 1
             else:
                 discarded_reads.add(read_name)
-            
+
         total_reads = len(discarded_reads) + len(read_objects.keys())
         bamfile.close()
         return(total_reads, perfect_alignment, read_objects)
@@ -424,10 +425,10 @@ read_objects = defaultdict()
 Reads.total_reads_aligned, perfect_alignment, read_objects = Parser.read_bam_file(bamfile_name, bins)
 
 Reads.reads_w_perfect_alignments = len(perfect_alignment.keys())
-logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).', 
+logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).',
     Reads.reads_w_perfect_alignments,
     Reads.total_reads_aligned,
-    Reads.reads_w_perfect_alignments*100/Reads.total_reads_aligned
+    Reads.reads_w_perfect_alignments*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0
     )
 ###############################################################################
 # Separate the Primary from the Escrow alignments
@@ -459,18 +460,18 @@ for read_name in perfect_alignment.keys():
 
 del perfect_alignment
 
-logging.info('\tUsed %d reads for primary distribution, out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total.', 
+logging.info('\tUsed %d reads for primary distribution, out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total.',
     Reads.total_singular_reads,
     Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads*100/Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads*100/Reads.total_reads_aligned
+    Reads.total_singular_reads*100/Reads.reads_w_perfect_alignments if Reads.reads_w_perfect_alignments !=0 else 0,
+    Reads.total_singular_reads*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0
     )
 
 if len(read_objects.keys()) != Reads.reads_w_perfect_alignments:
     logging.critical('Read %d reads with perfect alignments, but created %d read objects. There is something fishy going on here...',
     Reads.reads_w_perfect_alignments,
     len(read_objects.keys())
-    )    
+    )
     sys.exit()
 ###############################################################################
 # Processing the reads that mapped exclusively to a single strain
@@ -478,7 +479,7 @@ if len(read_objects.keys()) != Reads.reads_w_perfect_alignments:
 for name, read in read_objects.items():
     if read.has_voted:
         continue
-    
+
     # if read.mates_unique_name in read_objects.keys():
     if read.mate_has_perfect_match:
         # Means both reads in a mate are prefect alignments
@@ -497,8 +498,8 @@ for name, read in read_objects.items():
 logging.info('\t%d reads will be used for singular alignment strain abundance out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total aligned.',
     Reads.total_singular_reads_in_pairs,
     Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads_in_pairs*100/Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads_in_pairs*100/Reads.total_reads_aligned)
+    Reads.total_singular_reads_in_pairs*100/Reads.reads_w_perfect_alignments if Reads.reads_w_perfect_alignments !=0 else 0,
+    Reads.total_singular_reads_in_pairs*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0)
 
 del read_objects
 ###############################################################################

@@ -21,6 +21,7 @@ def helpMessage() {
 
     nextflow run ninjaindex.nf --genomes 'path/to/*.fna' --outdir ./output -profile docker
     nextflow run main.nf --genomes 's3://path/to/*.fna' --outdir 's3://path/to/' -profile czbiohub_aws
+    s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20190911/scv2/reference_fasta/
 
     Mandatory arguments:
       --genomes                     Path to reference genome directory (must be surrounded with quotes)
@@ -210,6 +211,7 @@ genomes_combined.into { genomes_combined1; genomes_combined2 }
 STEP 1.2
 ART generaes synthetic reads instead of grinder
 generate reads in fastq with zero-sequencing errors for a paired-end read simulation
+The 2nd parameter is used to change the coverage
 */
 
 process art_fastq {
@@ -224,7 +226,7 @@ process art_fastq {
 
   script:
   """
-  run_art.sh $fna
+  run_art.sh $fna 20
   """
 }
 
@@ -395,8 +397,16 @@ STEP 5
   		Generate final Ninja Index based on the merged bam file
       NinjaIndex need bam index in the same direcroty even though the script
       doesn't require the index as an input parameter
+      This step may need more memory to process
 */
 process generate_Ninja_Index {
+
+  memory { 64.GB * task.attempt }
+  time { 6.hour * task.attempt }
+
+  errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+  maxRetries 2
+
   tag "$bam"
 	publishDir "${params.outdir}/ninjaIndex", mode:'copy'
 
@@ -407,6 +417,7 @@ process generate_Ninja_Index {
 
   output:
   file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
+  file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.fasta"
 
   script:
   """

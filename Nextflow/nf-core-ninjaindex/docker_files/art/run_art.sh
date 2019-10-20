@@ -29,7 +29,7 @@ cp ${S3FASTA} ${LOCAL_FASTA}
 FWD="${PAIRED_FASTQ}/${PREFIX}.R1.fastq.gz"
 REV="${PAIRED_FASTQ}/${PREFIX}.R2.fastq.gz"
 
-COV_FOLD=${COV_FOLD:-10}
+COV_FOLD=${2:-10}
 
 # ART Command
 /mnt/art_bin_MountRainier/art_illumina \
