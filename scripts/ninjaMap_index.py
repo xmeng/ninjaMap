@@ -251,7 +251,7 @@ class Strains:
         
     def calculate_singular_coverage (self, bamfile_name):
         if self.num_singular_reads == 0:
-            return
+            return 0
         
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         
@@ -270,7 +270,7 @@ class Strains:
     
     def calculate_escrow_coverage (self, bamfile_name):
         if self.num_escrow_reads == 0:
-            return
+            return 0
         
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         for contig_name in self.contigs.keys():
@@ -939,7 +939,7 @@ for name, strain in all_strain_obj.items():
     my_cov = strain.calculate_escrow_coverage(bamfile_name)
     logging.info(f"\t... Calculated escrow coverage : {my_cov}x")
     my_frac = strain.calculate_read_fraction()
-    logging.info(f"\t... Calculated relative abundance : {my_frac}%%")
+    logging.info(f"\t... Calculated relative abundance : {my_frac}%")
     strain_stats_df = strain.compile_general_stats()
     if strain_stats_df is not None:
         stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)
