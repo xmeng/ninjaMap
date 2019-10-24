@@ -113,15 +113,15 @@ p.add_argument('-outdir', dest='outdir', action='store', type=str, required = Tr
 # Optional
 p.add_argument('-prefix', dest='prefix', action='store', type=str,
                 help='output prefix')
-p.add_argument('-debug', dest='debug', action='store_true', default=False,    
+p.add_argument('-test', dest='test', action='store_true', default=False,    
                 help='save intermediate false positives bam file')
 p.add_argument('-truth', dest='truth', action='store', default=False,    
-                help='If using debug, please provide one strain name that you would like to track.')
+                help='If using test, please provide one strain name that you would like to track.')
 p.add_argument('-mbq', dest='min_base_qual', action='store', default=20, type=int,    
                 help='minimum read base quality to consider for coverage calculations.')
 
 args = vars(p.parse_args())
-# DEBUG
+# test
 # bamfile_name = "/Users/sunit.jain/Research/SyntheticCommunities/ReadAlignment/Testing/Mismaps/Bacteroides-coprophilus-DSM-18228/Bacteroides-coprophilus-DSM-18228.processed.bam"
 # abundance_output_file = 'B_coprophilius.ninjaMap.v1.abundance.tsv'
 bamfile_name = args['bamfile']
@@ -149,12 +149,6 @@ if args['min_base_qual']:
 else:
     min_base_qual = 20
 
-if args['debug']:
-    true_strain = args['truth']
-    tmp_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
-    false_positives = pysam.AlignmentFile(prefix + '.ninjaMap.false_positives.bam', "wb", template=tmp_bamfile)
-    true_positives = pysam.AlignmentFile(prefix + '.ninjaMap.true_positives.bam', "wb", template=tmp_bamfile)
-
 logging.basicConfig(
     # filename=logfile, 
     # filemode='w+', 
@@ -162,6 +156,25 @@ logging.basicConfig(
     format='%(asctime)s\t[%(levelname)s]:\t%(message)s')
 
 logging.info('Started')
+
+singularBamfile = prefix +'.singularAln.ninjaMap.bam'
+escrowBamfile = prefix +'.escrowAln.ninjaMap.bam'
+tmp_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
+singularBam = pysam.AlignmentFile(singularBamfile, "wb", template=tmp_bamfile)
+escrowBam = pysam.AlignmentFile(escrowBamfile, "wb", template=tmp_bamfile)
+tmp_bamfile.close()
+
+if args['test']:
+    if (args['truth']):
+        true_strain = args['truth']
+        false_positives = pysam.AlignmentFile(prefix + '.ninjaMap.false_positives.bam', "wb", template=tmp_bamfile)
+        true_positives = pysam.AlignmentFile(prefix + '.ninjaMap.true_positives.bam', "wb", template=tmp_bamfile)
+    else:
+        logging.error('True strain name required for testing. None provided. Exiting.')
+        sys.exit(1)
+
+logging.info(f'Exclusive read alignments will be written to {singularBamfile}')
+logging.info(f'Shared read alignments will be written to {escrowBamfile}')
 ###############################################################################
 # Classes
 ###############################################################################
@@ -650,7 +663,7 @@ del all_strains
 logging.info('Processing the BAM file: %s ...', bamfile_name)
 
 total_reads = set()
-if args['debug']:
+if args['test']:
     perfect_alignment = defaultdict(lambda: defaultdict(list))
 else:
     perfect_alignment = defaultdict(lambda: defaultdict(int))
@@ -666,7 +679,7 @@ for aln in bamfile.fetch(until_eof=True):
 
     if Reads.is_perfect_alignment(aln):
         strain_name = bins[aln.reference_name] # bins[contig_name] --> strain name
-        if args['debug']:
+        if args['test']:
             perfect_alignment[read_name][strain_name].append(aln)
         else:
             perfect_alignment[read_name][strain_name] += 1
@@ -706,7 +719,17 @@ for read_name in perfect_alignment.keys():
 
     for strain_name in perfect_alignment[read_name].keys():
         read.add_exact_match(all_strain_obj[strain_name])
-        if args['debug']:
+        if (read.num_strains == 1):
+            # write to singular bamfile
+            singularBam.write(aln)
+        elif (read.num_strains > 1):
+            # write to escrow bamfile
+            escrowBam.write(aln)
+        else:
+            # Error
+
+
+        if args['test']:
             if read.num_strains == 1 and strain_name != true_strain:
                 for aln in perfect_alignment[read_name][strain_name]:
                     # write to Bam file
@@ -722,7 +745,10 @@ for read_name in perfect_alignment.keys():
         read.in_singular_bin = True
         Reads.total_singular_reads += 1
 
-if args['debug']:
+escrowBam.close()
+singularBam.close()
+
+if args['test']:
     tmp_bamfile.close()
     false_positives.close()
     true_positives.close()
