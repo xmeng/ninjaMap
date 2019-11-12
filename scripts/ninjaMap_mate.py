@@ -8,6 +8,8 @@
 import argparse
 import gzip
 import logging
+# import multiprocessing
+import numpy as np
 import os
 import pybedtools
 import pysam
@@ -16,7 +18,6 @@ import re
 import sys
 
 from collections import defaultdict, Counter
-
 from time import perf_counter as timer
 
 start = timer()
@@ -49,27 +50,24 @@ def intersection(list1, list2):
 #     except StopIteration:
 #         return True
 
-# def sort_and_index(file_name, sorted_prefix=None, cores=1):
-#     """ Sorts and indexes a bam file by coordinates.
-#     """
-#     if sorted_prefix is None:
-#         sorted_prefix = file_name.replace('.bam', '') + '_sorted'
+def sort_and_index(file_name, cores=4, by='Coord'):
+    """ Sorts and indexes a bam file by coordinates.
+    """
+    if by == 'Coord':
+        sorted_name = file_name.replace('.bam', '') + '.sortedByCoord.bam'
+        # pysam sort multithreading support doesn't work
+        # pysam.sort('-@',cores,'-o',sorted_name, file_name)
+        pysam.sort('-o',sorted_name, file_name)
+        
+    elif by == 'Name':
+        sorted_name = file_name.replace('.bam', '') + '.sortedByName.bam'
+        pysam.sort('-n','-o',sorted_name, file_name)
+    else:
+        raise Exception("Bam file can only be sorted by 'Coord' or 'Name'.")
 
-#     sorted_name = sorted_prefix + '.bam'
-#     pysam.sort('-@',cores, file_name, sorted_prefix)
-#     pysam.index(sorted_name)
-
-#     return pysam.Samfile(sorted_name, 'rb')
-
-# def sort_by_name(file_name, sorted_name=None, cores=1):
-#     """ Sorts a bam file by the read name, for paired-end
-#     """
-#     if sorted_name is None:
-#         sorted_name = file_name.replace('.bam', '') + '_namesorted.bam'
-
-#     pysam.sort('-@',cores,'-n', '-o' , sorted_name, file_name)
-
-#     return pysam.Samfile(sorted_name, 'rb')
+    pysam.index(sorted_name)
+    os.remove(file_name)
+    return sorted_name
 
 ###############################################################################
 # Side Project
@@ -115,6 +113,8 @@ p.add_argument('-outdir', dest='outdir', action='store', type=str, required = Tr
 # Optional
 p.add_argument('-prefix', dest='prefix', action='store', type=str,
                 help='output prefix')
+p.add_argument('-cores', dest='cores', action='store', default=8,
+                help='number of cores available for use')
 p.add_argument('-test', dest='test', action='store_true', default=False,    
                 help='save intermediate false positives bam file')
 p.add_argument('-truth', dest='truth', action='store', default=False,    
@@ -131,7 +131,10 @@ fastafile_name = args['fastafile']
 binmap_file = args['binmap']
 output_dir = args['outdir']
 
+cores = args['cores']
+os.environ['NUMEXPR_MAX_THREADS'] = f'{cores}'
 os.makedirs(output_dir, exist_ok=True)
+os.makedirs(f'{output_dir}/tmp', exist_ok=True)
 
 if not args['prefix']:
     default_prefix = os.path.basename(bamfile_name).split('.')[0]
@@ -184,6 +187,8 @@ logging.info(f'Shared read alignments will be written to {escrowBamfile}')
 class Strains:
     total_genome_size = 0
     total_strains = 0
+    total_uniquely_covered_bases = 0
+    net_promiscuity = 0
     
     def __init__(self, strain_name):
         self.name = strain_name
@@ -194,17 +199,22 @@ class Strains:
         self.cum_primary_votes = 0
         self.cum_escrow_votes = 0
         self.uniqueness_score = 0
+        self.percent_coverage = 0
+        self.depth_variance = 0
         
-        self.total_covered_bases = 0
-        self.total_covered_depth = 0
+        self.breadth_of_coverage = 0
+        self.depth_of_coverage = 0
 
         self.uniquely_covered_bases = set()
+        self.num_uniquely_covered_bases = 0
         self.uniquely_covered_depth = 0
         self.adj_primary_wt = 0
-        self.weighted_base_depth = 0
+        self.singular_depth_var = 0
         
         self.escrow_covered_bases = set()
+        self.num_escrow_covered_bases = 0
         self.escrow_covered_depth = 0
+        self.escrow_depth_var = 0
         
         self.aln_norm_abundance = 0
         self.genome_norm_abundance = 0
@@ -212,7 +222,6 @@ class Strains:
         self.escrow_vote_conversion_rate = 0
         self.singular_vote_conversion_rate = 0
         
-        self.covered_bases = set()
         self.contigs = defaultdict(int)
         self.singular_bin = defaultdict(int)
         self.escrow_bin = defaultdict(int)
@@ -260,95 +269,53 @@ class Strains:
         if self.num_singular_reads == 0:
             return (0,0,0,0)
 
-        (coverage, wt_depth, depth_sd, depth_variance) = (0,0,0,0)
+        coverage, depth, depth_sd, depth_variance = (0,0,0,0)
+
+        # Scaling factor for escrow depth values
+        scale = 1
+        if not singular:
+            scale = self.adj_primary_wt / Strains.net_promiscuity
+            self.escrow_covered_bases = set()
+            self.escrow_depth = 0
+            self.num_escrow_covered_bases = 0
+            self.escrow_depth_var = 0
 
         # filter by contig names for this strain
-        contigs_df = df[df.contig.isin(self.contigs.keys())]
-        if contigs_df.shape[0] > 1:
-            contigs_df['unique_name'] = contigs_df['contig'] + '_' + contigs_df['pos'].map(str)
+        contigs_df = df[df.contig.isin(self.contigs.keys())].copy()
+        num_bases = contigs_df.shape[0]
+        if num_bases > 0:
+            contigs_df['unique_name'] = contigs_df['contig'] + '_' + contigs_df['pos'].astype(str)
+            # contigs_df['unique_name'] = contigs_df[['contig', 'pos']].apply(lambda x: '_'.join(str(x)), axis = 1)
             # print(f'{contigs_df.shape}')
             # coverage = contigs_df.num_bases[contigs_df.depth > 0].sum() * 100 / self.genome_size
             # wt_depth = (contigs_df.depth * contigs_df.num_bases).sum() / self.genome_size
             # depth_variance = (contigs_df.depth * contigs_df.num_bases).var() * 100 / self.genome_size
-            coverage = contigs_df.pos[contigs_df.depth > 0].count() * 100 / self.genome_size
-            wt_depth = contigs_df.depth.sum() / self.genome_size
-            depth_sd = contigs_df.depth.std()
-            depth_variance = contigs_df.depth.var()
-            covered_bases = set(contigs_df.unique_name[contigs_df.depth > 0])
+            
+            # Breadth of coverage > 0.
+            coverage_breadth = contigs_df.pos[contigs_df.depth > 0].count()
+            coverage = coverage_breadth * 100 / self.genome_size
+            depth = contigs_df.depth.sum() / self.genome_size
+            # Pad depth_array with 0 to make it equal to the genome size before calculationf SD and Coeff of Var.
+            depth_array = np.concatenate([contigs_df.depth.to_numpy(),np.zeros(self.genome_size - coverage_breadth)]) * scale
+            depth_sd = np.std(depth_array)
+            depth_variance = depth_sd/np.mean(depth_array) # coeff of variation
+            bases_covered = set(contigs_df.unique_name[contigs_df.depth > 0])
             if singular:
-                self.uniquely_covered_bases = covered_bases
-                self.singular_depth = wt_depth
+                self.uniquely_covered_bases = bases_covered
+                self.singular_depth = depth
+                self.num_uniquely_covered_bases = coverage_breadth
+                self.singular_depth_var = depth_variance
+                Strains.total_uniquely_covered_bases += coverage_breadth
             else:
-                self.escrow_covered_bases = covered_bases
-                self.escrow_depth = wt_depth
-
-        return (coverage, wt_depth, depth_sd, depth_variance)
-
-
-    def _add_covered_base(self, contig_name, contig_pos):
-        unique_contig_name = contig_name+'_'+str(contig_pos)
-        self.covered_bases.add(unique_contig_name)
+                self.escrow_covered_bases = bases_covered
+                self.escrow_depth = depth
+                self.num_escrow_covered_bases = coverage_breadth
+                self.escrow_depth_var = depth_variance
         
-#     def calculate_singular_coverage (self, bamfile_name, fasta_file):
-#         if self.num_singular_reads == 0:
-#             return 0
-        
-#         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
-#         fasta = pysam.FastaFile(fasta_file)
-        
-#         for contig_name in self.contigs.keys():
-#             for pileupcolumn in cov_bamfile.pileup(contig = contig_name, stepper = 'all', min_base_quality = 20):
-#                 base_cov_contribution = 0
-#                 if pileupcolumn.nsegments > 0:
-#                     base_cov_contribution = self._calc_base_depth(pileupcolumn, self.singular_bin)
+        # Allow this temporary dataframe to be garbage collected.
+        del contigs_df
 
-#                     if base_cov_contribution > 0:
-#                         # self.uniquely_covered_bases += 1
-#                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
-#                         self.uniquely_covered_depth += base_cov_contribution
-#         cov_bamfile.close()
-#         fasta.close()
-        
-#         return self.uniquely_covered_depth/self.genome_size
-    
-#     def calculate_escrow_coverage (self, bamfile_name, fasta_file):
-#         if self.num_escrow_reads == 0:
-#             return 0
-        
-#         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
-#         fasta = pysam.FastaFile(fasta_file)
-#         for contig_name in self.contigs.keys():
-# #             for pileupcolumn in cov_bamfile.pileup(contig = contig_name, stepper = 'samtools', fastafile = fasta, min_base_quality = min_base_qual):
-#             for pileupcolumn in cov_bamfile.pileup(contig = contig_name, stepper = 'all', min_base_quality = 20):
-#                 # For this base/column on the contig
-#                 # print ("\ncoverage at base %s = %s" % (pileupcolumn.pos, pileupcolumn.n))
-#                 base_cov_contribution = 0
-#                 if pileupcolumn.nsegments > 0:
-#                     base_cov_contribution = self._calc_base_depth(pileupcolumn, self.escrow_bin)
-
-#                     if base_cov_contribution > 0:
-#                         # self.escrow_covered_bases += 1
-#                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
-#                         self.escrow_covered_depth += base_cov_contribution
-
-#         cov_bamfile.close()
-#         return self.escrow_covered_depth/self.genome_size
-
-#     def _calc_base_depth(self, pileupcolumn, bin_dict):
-#         wt_base_depth = 0
-#         for pileupread in pileupcolumn.pileups:
-#             # For all reads aligned to this base/column on the contig
-#             # print ('\tbase in read %s = %s' %
-#             #       (pileupread.alignment.query_name,
-#             #        pileupread.alignment.query_sequence[pileupread.query_position]))
-#             read_unique_name = Reads.get_unique_read_name(pileupread.alignment)
-#             if read_unique_name in bin_dict.keys():
-#                 # Only calculate coverage from reads with perfect alignment(singular or escrow).
-#                 wt_base_depth += bin_dict[read_unique_name]
-#                 self.total_covered_depth += 1
-#                 self.weighted_base_depth += wt_base_depth
-
-#         return wt_base_depth
+        return (coverage, depth, depth_sd, depth_variance)
 
     def _normalize_votes(self):
         # Read to Vote conversion ratio
@@ -367,11 +334,19 @@ class Strains:
         for each object of this class, return a pandas data frame with 
         strains as rows and number of singular and escrow votes
         '''
-        if (len(self.uniquely_covered_bases) == 0) and (len(self.escrow_covered_bases) == 0):
+        if (self.num_uniquely_covered_bases == 0) and (self.num_escrow_covered_bases == 0):
             return None
         
-        self.covered_bases = self.uniquely_covered_bases.union(self.escrow_covered_bases)
-        self.total_covered_bases = len(self.covered_bases)
+        # Depth of cov should be added since escrow depth is already adjusted by escrow read weights.
+        self.depth_of_coverage = self.escrow_depth + self.singular_depth
+        
+        # Breadth should be the union of Escrow and Singular coverage
+        self.breadth_of_coverage = len(self.uniquely_covered_bases.union(self.escrow_covered_bases))
+        self.percent_coverage = self.breadth_of_coverage * 100 / self.genome_size
+
+        # Right now, just prioritizing reads with exclusive matches to the genome and their variance. 
+        # Might not be the best way forward for cases where the exact genome is missing but multiple similar strains are present.
+        self.depth_variance = self.singular_depth_var 
         self._normalize_votes()
 
         frac_escrow_reads = 0
@@ -379,73 +354,132 @@ class Strains:
             frac_escrow_reads = self.num_escrow_reads/Reads.total_escrow_reads
 
         frac_singular_reads = 0
-        if Reads.total_singular_reads > 0:
-            frac_singular_reads = self.num_singular_reads/Reads.total_singular_reads
+        if Reads.total_singular_reads_after_recruitment > 0:
+            frac_singular_reads = self.num_singular_reads/Reads.total_singular_reads_after_recruitment
         
         # Dataframe
         return pd.DataFrame(
             index = [self.name],
             data  = {
                 'Genome_Size' : self.genome_size,
-                'Percent_Coverage' : self.total_covered_bases * 100 / self.genome_size,
-                'Total_Bases_Covered' : self.total_covered_bases,
-                'Coverage_Depth' : self.total_covered_depth/self.genome_size,
+                'Percent_Coverage' : self.percent_coverage,
+                'Total_Bases_Covered' : self.breadth_of_coverage,
+                'Coverage_Depth' : self.depth_of_coverage,
+                'Depth_Variation' : self.depth_variance,
                 'Read_Fraction' : self.read_fraction,
                 'Singular_Strain_Weight' : self.adj_primary_wt,
                 'Total_Singular_Reads' : self.num_singular_reads,
                 'Total_Singular_Votes' : self.cum_primary_votes,
                 'Singular_Read_Vote_Ratio' : self.singular_vote_conversion_rate,
                 'Singular_Fraction_of_Singular_Reads' : frac_singular_reads,
-                'Singular_Coverage' : len(self.uniquely_covered_bases),
+                'Singular_Coverage' : self.num_uniquely_covered_bases,
                 'Singular_Depth' : self.singular_depth,
                 'Total_Escrow_Reads' : self.num_escrow_reads,
                 'Total_Escrow_Votes' : self.cum_escrow_votes,
                 'Escrow_Read_Vote_Ratio' : self.escrow_vote_conversion_rate,
                 'Fraction_of_all_Escrow_Reads' : frac_escrow_reads,
-                'Escrowed_Cov' : len(self.escrow_covered_bases),
+                'Escrowed_Cov' : self.num_escrow_covered_bases,
                 'Escrowed_Depth' : self.escrow_depth
             }
         )
-    
+
     def compile_by_abundance(self):
         '''
         return a pandas data frame with 1 row x 4 columns. 
-                    relative_abundance, percent_coverage, wt_coverage_depth
-        strain_name
+            Strain_Name,Read_Fraction, Percent_Coverage, Coverage_Depth, Depth_Coeff_Variation
         '''
         if self.read_fraction == 0:
             return None
-
-        percent_coverage = self.total_covered_bases * 100 / self.genome_size
-        coverage_depth = self.total_covered_depth/self.genome_size
-
-        wt_coverage_depth = self.weighted_base_depth / self.genome_size
 
         return pd.DataFrame(
                     index = [self.name],
                     data  = {
                         'Read_Fraction' : self.read_fraction,
-                        'Percent_Coverage' : percent_coverage,
-                        'Coverage_Depth' : coverage_depth,
-                        'Weighted_Coverage_Depth' : wt_coverage_depth
+                        'Percent_Coverage' : self.percent_coverage,
+                        'Coverage_Depth' : self.depth_of_coverage,
+                        'Depth_Coeff_Variation' : self.depth_variance
                         }
                     )
-
-    def calculate_sunits_original_adjustment(self):
-        self.adj_primary_wt = self.cum_primary_votes / Reads.total_reads_aligned
+    def strain_promiscuity_adjustment(self):
+        # self.adj_primary_wt = calculate_sunits_original_adjustment(self)
+        self.adj_primary_wt = self.beta_adjustment()
+        Strains.net_promiscuity += self.adj_primary_wt
         return self.adj_primary_wt
 
+    # The OG
+    def calculate_sunits_original_adjustment(self):
+        return self.cum_primary_votes / Reads.total_reads_aligned
+
+    def beta_adjustment(self):
+        if self.num_uniquely_covered_bases == 0:
+            return 0
+
+        # 2019-11-07 Sunit's interpretation 2 of mike drop: This should be the rate of aggregation of reads for 1 strain compared to the others
+        # Borrowed from the beta measure of how well a stock does compared to the rest of the sector.
+        strains_reads_per_base = self.num_singular_reads / self.num_uniquely_covered_bases / self.genome_size
+        
+        if (Reads.total_singular_reads_after_recruitment == self.num_singular_reads):
+            # all singular reads assigned were assigned to this strain.
+            others_singular_reads_aligned = self.num_singular_reads
+            others_uniquely_covered_bases = self.num_uniquely_covered_bases
+        elif(Reads.total_singular_reads_after_recruitment > self.num_singular_reads):
+            others_singular_reads_aligned = Reads.total_singular_reads_after_recruitment - self.num_singular_reads
+            others_uniquely_covered_bases = Strains.total_uniquely_covered_bases - self.num_uniquely_covered_bases
+        else:
+            sys.exit(f"""
+            {self.name} others_singular_reads_aligned can't be negative!
+            Total singular reads:{Reads.total_singular_reads_after_recruitment}
+            Total singular bases:{Strains.total_uniquely_covered_bases}
+            Total bases:{Strains.total_genome_size}
+
+            Strain singular reads:{self.num_singular_reads}
+            Strain singular bases:{self.num_uniquely_covered_bases}
+            Strain Genome Size:{self.genome_size}
+            """)
+        
+        others_total_genomes_size = Strains.total_genome_size - self.genome_size
+
+        others_reads_per_base = others_singular_reads_aligned / others_uniquely_covered_bases / others_total_genomes_size
+
+        adj_primary_wt = strains_reads_per_base / others_reads_per_base
+        # Case 1: self.adj_primary_wt = 1
+        #       - rate of read recruitment for this strain is equal to the rate for the rest of the genomes.
+        #       - No biases.
+        # Case 2: self.adj_primary_wt > 1
+        #       - rate of recruitment for this strain is greater than the rate for the rest of the genomes.
+        #       - reads preferentially map to this strain over others.
+        # Case 3: self.adj_primary_wt < 1
+        #       - rate of recruitment for this strain is less than the rate for the rest of the genomes.
+        #       - reads preferentially map to other strains over this strain.
+        if adj_primary_wt < 0:
+            sys.exit(f"""
+            {self.name} adj_primary_wt can't be negative!
+            Total singular reads:{Reads.total_singular_reads}
+            Total singular bases:{Strains.total_uniquely_covered_bases}
+            Total bases:{Strains.total_genome_size}
+            
+            Strain singular reads:{self.num_singular_reads}
+            Strain singular bases:{self.num_uniquely_covered_bases}
+            Strain Genome Size:{self.genome_size}
+            """)
+        return adj_primary_wt
+
     def calculate_read_fraction(self):
-        self.read_fraction = (self.cum_escrow_votes + self.cum_primary_votes) * 100 / Reads.total_reads_aligned
+        if (self.num_uniquely_covered_bases == 0) and (self.num_escrow_covered_bases == 0):
+            self.read_fraction = 0
+        else:
+            self.read_fraction = (self.cum_escrow_votes + self.cum_primary_votes) * 100 / Reads.total_reads_aligned
         return self.read_fraction
 
     @staticmethod
     def calculate_coverage(bamfile_name):
+        pybedtools.set_tempdir(f'{output_dir}/tmp')
         a = pybedtools.BedTool(bamfile_name)
         # b = a.genome_coverage()
         # df = b.to_dataframe(names=['contig', 'depth', 'num_bases', 'contig_size', 'fraction'])
-        b = a.genome_coverage(d = True)
+        b = a.genome_coverage(dz = True)
         df = b.to_dataframe(names=['contig','pos', 'depth'])
+        pybedtools.cleanup()
         return df
 
 class Reads:
@@ -455,7 +489,7 @@ class Reads:
     total_escrow_reads_kept = 0
     total_escrow_reads_discarded = 0
     total_escrow_reads = 0
-    total_singular_reads_in_pairs = 0
+    total_singular_reads_after_recruitment = 0
 
     def __init__(self, name, mate_name, read_length, template_length):
         self.name = name
@@ -729,7 +763,7 @@ if args['test']:
 # del perfect_alignment
 del read_info
 
-logging.info('\tUsed %d reads for primary distribution, out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total.', 
+logging.info('\tUsed %d reads for seed primary distribution, out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total.', 
     Reads.total_singular_reads,
     Reads.reads_w_perfect_alignments,
     Reads.total_singular_reads*100/Reads.reads_w_perfect_alignments,
@@ -759,7 +793,7 @@ for name, read in read_objects.items():
     
     # if read.mates_unique_name in read_objects.keys():
     if read.mate_has_perfect_match:
-        # Means both reads in a mate are prefect alignments
+        # Means both reads in a mate are prefect alignments to some strain(s); may not be the same
         mate = read_objects[read.mates_unique_name]
         strain_name = Reads.choose_primary_candidate(read, mate)
 
@@ -775,7 +809,8 @@ for name, read in read_objects.items():
             for aln in perfect_alignment[mate.unique_name][strain.name]:
                 singularBam.write(aln)
 
-            Reads.total_singular_reads_in_pairs += 2
+            # Reads.total_singular_reads_in_pairs += 2
+            Reads.total_singular_reads_after_recruitment += 2
 
             votes.write(read.name + ',' + strain.name + ',' + str(strain.singular_bin[read.unique_name]) + ',' + 
                 str(strain.escrow_bin[read.unique_name]) + ',' + '1,False,'+ 
@@ -797,22 +832,22 @@ for name, read in read_objects.items():
 singularBam.close()
 
 Reads.total_escrow_reads = len(escrow_read_objects.keys())
-logging.info('\t%d reads will be used for singular alignment strain abundance out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total aligned.',
-    Reads.total_singular_reads_in_pairs,
+logging.info('\t%d reads will be used for singular alignment strain abundance out of %d (%7.3f%%) reads with perfect alignments (and recruited mates) or %7.3f%% of total aligned.',
+    Reads.total_singular_reads_after_recruitment,
     Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads_in_pairs*100/Reads.reads_w_perfect_alignments,
-    Reads.total_singular_reads_in_pairs*100/Reads.total_reads_aligned)
+    Reads.total_singular_reads_after_recruitment*100/Reads.reads_w_perfect_alignments,
+    Reads.total_singular_reads_after_recruitment*100/Reads.total_reads_aligned)
 logging.info('\t%d reads for escrow alignment strain abundance out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total aligned.',
     Reads.total_escrow_reads,
     Reads.reads_w_perfect_alignments,
     Reads.total_escrow_reads * 100 / Reads.reads_w_perfect_alignments,
     Reads.total_escrow_reads * 100 / Reads.total_reads_aligned)
 
-if Reads.reads_w_perfect_alignments != (Reads.total_escrow_reads + Reads.total_singular_reads_in_pairs):
+if Reads.reads_w_perfect_alignments != (Reads.total_escrow_reads + Reads.total_singular_reads_after_recruitment):
     logging.critical('Read %d read objects with perfect alignments, but created %d read objects as singular and escrow total (%d + %d). There is something fishy going on here...',
     Reads.reads_w_perfect_alignments,
-    (Reads.total_escrow_reads + Reads.total_singular_reads_in_pairs),
-    Reads.total_singular_reads_in_pairs,
+    (Reads.total_escrow_reads + Reads.total_singular_reads_after_recruitment),
+    Reads.total_singular_reads_after_recruitment,
     Reads.total_escrow_reads)
     sys.exit(1)
 
@@ -830,17 +865,44 @@ logging.info('Computing depth and coverage for each strain in the database based
 
 # Use bedtools to calculate genomecoverage from the given bam file
 
-pysam.sort('-o','tmp.bam', singularBamfile)
-os.rename('tmp.bam',singularBamfile)
-pysam.index(singularBamfile)
+# pysam.sort('-o','tmp.bam', singularBamfile)
+# os.rename('tmp.bam',singularBamfile)
+# pysam.index(singularBamfile)
+sorted_singularBamfile = sort_and_index(singularBamfile)
+singular_bed_coverage = Strains.calculate_coverage(sorted_singularBamfile)
 
-singular_bed_coverage = Strains.calculate_coverage(singularBamfile)
+## BEGIN: Partially successful attempt at multiprocessing ##
+# def calculate_genome_coverage(strain_obj):
+#     (coverage, wt_depth, depth_sd, depth_variance) = strain_obj.calculate_genome_coverage(singular_bed_coverage)
+#     if coverage > 0:
+#         print(f"{strain_obj.name}: Singular Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
+#         return (strain_obj.name, coverage, wt_depth, depth_sd, depth_variance)
+## END: Partially successful attempt at multiprocessing ##
+
 i = 0
-for name, strain in all_strain_obj.items():
-    i += 1
-    logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
-    (coverage, wt_depth, depth_sd, depth_variance) = strain.calculate_genome_coverage(singular_bed_coverage)
-    logging.info(f"\t... Calculated singular Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
+singular_depth_file = prefix +'.ninjaMap.singular_depth.csv'
+with open(singular_depth_file, 'w+') as sd_handle:
+    sd_handle.write(f"strain\tcoverage\tdepth\tdepth_sd\tdepth_coeff_variance\n")
+    ## BEGIN: Partially successful attempt at multiprocessing ##
+    # genome_coverage = []
+    # with multiprocessing.Pool(7) as p:
+    #     genome_coverage.append(p.map(calculate_genome_coverage, all_strain_obj.values()))
+
+    # print(f'{genome_coverage}')
+
+    # for output in genome_coverage[0]:
+    #     if output is not None:
+    #         (name, coverage, wt_depth, depth_sd, depth_variance) = output
+    #         logging.info(f"{name}: Singular Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
+    #         sd_handle.write(f"{name}\t{coverage}\t{wt_depth}\t{depth_sd}\t{depth_variance}\n")
+    ## END: Partially successful attempt at multiprocessing ##
+    for name, strain in all_strain_obj.items():
+        i += 1
+        logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
+        (coverage, wt_depth, depth_sd, depth_variance) = strain.calculate_genome_coverage(singular_bed_coverage)
+        if coverage > 0:
+            logging.info(f"\t... Calculated Singular Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
+            sd_handle.write(f"{strain.name}\t{coverage}\t{wt_depth}\t{depth_sd}\t{depth_variance}\n")
 
 ###############################################################################
 # Use the strain abundance distribution based on Singular alignments to weight
@@ -875,7 +937,10 @@ if Reads.total_escrow_reads > 0:
             # for strain in read.mapped_strains.keys():
 
             for strain in common_strains_list:
-                total_primary_wts += strain.calculate_sunits_original_adjustment() # self.cum_primary_votes / Reads.total_reads_aligned
+                if strain.adj_primary_wt:
+                    total_primary_wts += strain.adj_primary_wt
+                else:
+                    total_primary_wts += strain.strain_promiscuity_adjustment()
 
             if total_primary_wts > 0:
                 Reads.total_escrow_reads_kept += 1
@@ -924,7 +989,7 @@ if Reads.total_escrow_reads_discarded > 0:
     
 if singular_fraud_alert or escrow_fraud_alert:
     logging.critical('[FATAL] There were signs of voter fraud. See the votes file (%s) for the complete picture.', vote_file)
-    logging.critical("\tVoter fraud committed by " +str(num_singular_fraud_reads)+ " out of " +str(Reads.total_singular_reads_in_pairs)+ " singular reads in pairs")
+    logging.critical("\tVoter fraud committed by " +str(num_singular_fraud_reads)+ " out of " +str(Reads.total_singular_reads_after_recruitment)+ " singular reads in pairs")
     logging.critical("\tVoter fraud committed by " +str(num_fraud_reads)+ " out of " +str(Reads.total_escrow_reads)+ " escrow reads")
     sys.exit(1)
 
@@ -954,25 +1019,31 @@ logging.info('Computing depth and coverage for each strain in the database based
 abundance_df = pd.DataFrame()
 stats_df = pd.DataFrame()
 
-pysam.sort('-o','tmp.bam', escrowBamfile)
-os.rename('tmp.bam',escrowBamfile)
-pysam.index(escrowBamfile)
+# pysam.sort('-o','tmp.bam', escrowBamfile)
+# os.rename('tmp.bam',escrowBamfile)
+# pysam.index(escrowBamfile)
+sorted_escrowBamfile = sort_and_index(escrowBamfile)
 
-escrow_bed_coverage = Strains.calculate_coverage(escrowBamfile)
+escrow_bed_coverage = Strains.calculate_coverage(sorted_escrowBamfile)
 i = 0
-for name, strain in all_strain_obj.items():
-    i += 1
-    logging.info("\t[%d/%d]Searching for escrow support for :\t%s",i, Strains.total_strains, name)
-    (coverage, wt_depth, depth_sd, depth_variance) = strain.calculate_genome_coverage(escrow_bed_coverage, singular = False)
-    logging.info(f"\t... Calculated Escrow Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
-    my_frac = strain.calculate_read_fraction()
-    logging.info(f"\t... Calculated relative abundance : {my_frac}%")
-    strain_stats_df = strain.compile_general_stats()
-    if strain_stats_df is not None:
-        stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)
-    strain_abundance_df = strain.compile_by_abundance()
-    if strain_abundance_df is not None:
-        abundance_df = pd.DataFrame.add(abundance_df, strain_abundance_df, fill_value = 0)
+escrow_depth_file = prefix +'.ninjaMap.escrow_depth.csv'
+with open(escrow_depth_file, 'w+') as ed_handle:
+    ed_handle.write(f"strain\tcoverage\tdepth\tdepth_sd\tdepth_coeff_variance\n")
+    for name, strain in all_strain_obj.items():
+        i += 1
+        logging.info("\t[%d/%d]Searching for escrow support for :\t%s",i, Strains.total_strains, name)
+        (coverage, wt_depth, depth_sd, depth_variance) = strain.calculate_genome_coverage(escrow_bed_coverage, singular = False)
+        if coverage > 0:
+            logging.info(f"\t... Calculated Escrow Coverage = {coverage}%; Weighted Depth = {wt_depth}x; Depth StDev = {depth_sd}; Variation in Depth = {depth_variance}%")
+            ed_handle.write(f"{strain.name}\t{coverage}\t{wt_depth}\t{depth_sd}\t{depth_variance}\n")
+        my_frac = strain.calculate_read_fraction()
+        logging.info(f"\t... Calculated relative abundance : {my_frac}%")
+        strain_stats_df = strain.compile_general_stats()
+        if strain_stats_df is not None:
+            stats_df = pd.DataFrame.add(stats_df, strain_stats_df, fill_value = 0)
+        strain_abundance_df = strain.compile_by_abundance()
+        if strain_abundance_df is not None:
+            abundance_df = pd.DataFrame.add(abundance_df, strain_abundance_df, fill_value = 0)
 
 logging.info('Writing strain stats file ...')
 stats_df.to_csv(strain_stats_file, index_label='Strain_Name')
@@ -990,7 +1061,7 @@ stats.write(
     prefix +','+
     str(Reads.total_reads_aligned) +','+ 
     str(Reads.reads_w_perfect_alignments) +','+
-    str(Reads.total_singular_reads_in_pairs) +','+
+    str(Reads.total_singular_reads_after_recruitment) +','+
     str(Reads.total_escrow_reads_kept) +','+
     str(Reads.total_escrow_reads_discarded) +'\n')
 stats.close()
