@@ -7,7 +7,7 @@ ENV PATH "/opt/conda/bin:$PATH"
 # Install dependencies
 RUN conda install -y scipy numpy pandas
 RUN conda install -c conda-forge -y awscli biopython
-RUN conda install -c bioconda -y bowtie2 samtools bedtools vcftools sambamba pysam bbmap
+RUN conda install -c bioconda -y bowtie2 samtools bedtools vcftools sambamba pysam pysamstats pybedtools bbmap
 RUN conda clean -ya
 
 RUN mkdir -p /mnt

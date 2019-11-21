@@ -196,7 +196,28 @@ class Strains:
         # a read is assigned to => Size of unique region in a genome compared to other genomes that this read maps.
         # This is a VERY costly operation to repeat millions of times, since it cannot be pre-calculated.
         # I have adjusted it to use the genome's absolute unique region compared to all genomes in the database.
-        self.adj_primary_wt = self.cum_primary_votes / self.uniquely_covered_bases
+        # self.adj_primary_wt = 0 # self.cum_primary_votes / self.uniquely_covered_bases
+
+        self.adj_primary_wt = 0
+        # 2019-11-07 Sunit's interpretation 2 of mike drop: This should be the rate of aggregation of reads for 1 strain compared to the others
+        # Borrowed from the beta measure of how well a stock does compared to the rest of the sector.
+        strains_reads_per_base = self.cum_primary_votes / self.uniquely_covered_bases / self.genome_size
+
+        others_singular_reads_aligned = Reads.total_singular_reads - self.cum_primary_votes
+        others_uniquely_covered_bases = Strains.total_uniquely_covered_bases - self.uniquely_covered_bases
+        others_total_genomes_size = Strains.total_genome_size - self.genome_size
+        others_reads_per_base = others_singular_reads_aligned / others_uniquely_covered_bases / others_total_genomes_size
+
+        self.adj_primary_wt = strains_reads_per_base / others_reads_per_base
+        # Case 1: self.adj_primary_wt = 1
+        #       - rate of read recruitment for this strain is equal to the rate for the rest of the genomes.
+        #       - No biases.
+        # Case 2: self.adj_primary_wt > 1
+        #       - rate of recruitment for this strain is greater than the rate for the rest of the genomes.
+        #       - reads preferentially map to this strain over others.
+        # Case 3: self.adj_primary_wt < 1
+        #       - rate of recruitment for this strain is less than the rate for the rest of the genomes.
+        #       - reads preferentially map to other strains over this strain.
         return self.adj_primary_wt
 
     def calculate_sunits_original_adjustment(self):

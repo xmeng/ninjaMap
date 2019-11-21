@@ -41,9 +41,14 @@ minAlnCov="${minAlnCov:-0}"
 # fastq1=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R1_001.fastq.gz
 # fastq2=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R2_001.fastq.gz
 
-S3DBPATH="s3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/20190720_00_NinjaIndex/uniform10x/index/ninjaIndex"
-REFDBNAME="uniform10x_ninjaIndex.ninjaIndex"
-BINMAP_FILENAME="uniform10x_ninjaIndex.ninjaIndex.binmap.csv"
+# S3DBPATH="s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Index/20180725/scv1/db/"
+# REFDBNAME="uniform10x_ninjaIndex.ninjaIndex"
+# BINMAP_FILENAME="uniform10x_ninjaIndex.ninjaIndex.binmap.csv"
+
+S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20190911/scv2/db/"}
+REFDBNAME=${REFDBNAME:-"20190911_scv2"}
+STRAIN_MAP_FILENAME=${STRAIN_MAP_FILENAME:-"20190911_scv2.ninjaIndex.binmap.csv"}
+
 SAMPLE_NAME=$(basename ${S3OUTPUTPATH})
 
 echo $PATH
@@ -73,12 +78,14 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}" "${S3OUTPUTPATH}";
     exit 255; }' 1 
 
 adapterFile="adapters,phix"
+# offLimitRegions="./data/combined_excluded_regions_threshold9.bed"
 scriptFolder="./scripts"
+BOWTIE2_DB=${LOCAL_DB_PATH}/bowtie2_index/${REFDBNAME}
+REF_FASTA=${LOCAL_DB_PATH}/${REFDBNAME}.fna
 
 # Copy genome reference over
-DBNAME=${LOCAL_DB_PATH}/${REFDBNAME}
-referenceNameFile=${LOCAL_DB_PATH}/${BINMAP_FILENAME}
 aws s3 sync --quiet ${S3DBPATH}/ ${LOCAL_DB_PATH}/
+referenceNameFile=${LOCAL_DB_PATH}/${STRAIN_MAP_FILENAME}
 
 # Constant definitions for bbduk
 trimQuality="${trimQuality:-25}"
@@ -115,7 +122,7 @@ bowtie2 \
     -X ${maxInsert} \
     -k ${maxAlignments} \
     --threads ${coreNum} \
-    -x ${DBNAME} \
+    -x ${BOWTIE2_DB} \
     --no-mixed \
     --no-discordant \
     --end-to-end \

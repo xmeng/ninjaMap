@@ -274,7 +274,8 @@ class Strains:
         # Scaling factor for escrow depth values
         scale = 1
         if not singular:
-            scale = self.adj_primary_wt / Strains.net_promiscuity
+            if Strains.net_promiscuity > 0:
+                scale = self.adj_primary_wt / Strains.net_promiscuity
             self.escrow_covered_bases = set()
             self.escrow_depth = 0
             self.num_escrow_covered_bases = 0
@@ -475,10 +476,7 @@ class Strains:
     def calculate_coverage(bamfile_name):
         pybedtools.set_tempdir(f'{output_dir}/tmp')
         a = pybedtools.BedTool(bamfile_name)
-        # b = a.genome_coverage()
-        # df = b.to_dataframe(names=['contig', 'depth', 'num_bases', 'contig_size', 'fraction'])
-        b = a.genome_coverage(dz = True)
-        df = b.to_dataframe(names=['contig','pos', 'depth'])
+        df = a.genome_coverage(dz = True).to_dataframe(names=['contig','pos', 'depth'])
         pybedtools.cleanup()
         return df
 

@@ -41,7 +41,7 @@ minAlnCov="${minAlnCov:-0}"
 # fastq1=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R1_001.fastq.gz
 # fastq2=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R2_001.fastq.gz
 
-# S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/Synthetic_Community/Genome_References/Bowtie2Index_090718"}
+# S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20180907/scv1/db/"}
 # REFDBNAME=${REFDBNAME:-"combined_104_reference_genomes"}
 # STRAIN_MAP_FILENAME=${STRAIN_MAP_FILENAME:-"combined_104_contig_strain_map.txt"}
 
@@ -80,7 +80,6 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}" "${S3OUTPUTPATH}";
 adapterFile="adapters,phix"
 # offLimitRegions="./data/combined_excluded_regions_threshold9.bed"
 scriptFolder="./scripts"
-# BOWTIE2_DB=${LOCAL_DB_PATH}/${REFDBNAME}
 BOWTIE2_DB=${LOCAL_DB_PATH}/bowtie2_index/${REFDBNAME}
 REF_FASTA=${LOCAL_DB_PATH}/${REFDBNAME}.fna
 
