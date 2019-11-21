@@ -170,7 +170,8 @@ python ${scriptFolder}/ninjaMap_mate.py \
     -bin ${referenceNameFile} \
     -fasta ${REF_FASTA} \
     -outdir ${NINJA_OUTPUT} \
-    -prefix ${SAMPLE_NAME}
+    -prefix ${SAMPLE_NAME} \
+    -cores ${coreNum}
 
 # Tabulate read count
 totalReads=$(( $( zcat ${RAW_FASTQ}/read1.fastq.gz | wc -l ) / 4 ))
