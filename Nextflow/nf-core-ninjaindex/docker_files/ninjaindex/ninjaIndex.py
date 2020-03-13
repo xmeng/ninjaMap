@@ -60,10 +60,12 @@ p.add_argument('-bam', dest='bamfile', action='store', type=str, required = True
                 help='name sorted bam file.')
 p.add_argument('-fastadir', dest='fastadir', action='store', type=str, required = True,
                 help='dir with genomes in separate fasta files.')
-p.add_argument('-fasta_ext', dest='ext', action='store', type=str, default = "fna",
+p.add_argument('-"fasta_ext"', dest='ext', action='store', type=str, default = "fna",
                 help='file file extension; all files must have the same extension.')
 p.add_argument('-prefix', dest='prefix', action='store', type=str,
                 help='[Output] output prefix. Watch out for a comma-delimited binmap file and a concatenated fasta file for ninjaMap')
+p.add_argument('-selfbamdir', dest='selfbamdir', action='store', type=str, required = True,
+                help='dir with self aligned genomes in separate bam files.')
 
 # Optional
 p.add_argument('-outdir', dest='outdir', action='store', type=str,
@@ -78,6 +80,8 @@ args = vars(p.parse_args())
 bamfile_name = args['bamfile']
 fastafile_dir = args['fastadir']
 fasta_ext = args['ext']
+
+selfbamfile_dir = args['selfbamdir']
 
 if not args['outdir']:
     output_dir = "db"
@@ -125,6 +129,9 @@ class Strains:
         self.genome_norm_abundance = 0
         self.adjusted_votes = 0
         self.singular_vote_conversion_rate = 0
+
+        # reads aligned to its genome itself
+        self.self_aligned_reads_number = 0
 
         self.contigs = defaultdict(int)
         self.singular_bin = defaultdict(int)
@@ -196,21 +203,22 @@ class Strains:
         # a read is assigned to => Size of unique region in a genome compared to other genomes that this read maps.
         # This is a VERY costly operation to repeat millions of times, since it cannot be pre-calculated.
         # I have adjusted it to use the genome's absolute unique region compared to all genomes in the database.
-        self.adj_primary_wt = self.cum_primary_votes / self.uniquely_covered_bases if self.uniquely_covered_bases != 0 else 0
-
+        #print(self.genome_size, self.uniquely_covered_bases)
+        print (self.genome_size, self.uniquely_covered_bases)
+        self.adj_primary_wt = self.cum_primary_votes / (self.genome_size - self.uniquely_covered_bases) #if self.uniquely_covered_bases != 0 else 0
         return self.adj_primary_wt
 
     def calculate_sunits_original_adjustment(self):
-        self.adj_primary_wt_2 = self.cum_primary_votes / Reads.total_reads_aligned if Reads.total_reads_aligned != 0 else 0
+        self.adj_primary_wt_2 = self.cum_primary_votes / Reads.total_reads_aligned #if Reads.total_reads_aligned != 0 else 0
         return self.adj_primary_wt_2
 
     def calculate_mike_drop_penalty(self):
-        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases if Strains.total_uniquely_covered_bases != 0 else 0
+        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases # if Strains.total_uniquely_covered_bases != 0 else 0
         return self.uniqueness_score
 
     def calculate_adj_primary_wt_uniqueness_score(self):
         # Sunit's interpretation of Mike drop adjustment
-        self.adj_primary_wt_3 = (1 - self.uniqueness_score) * self.cum_primary_votes / Reads.total_reads_aligned if Reads.total_reads_aligned != 0 else 0
+        self.adj_primary_wt_3 = (1 - self.uniqueness_score) * self.cum_primary_votes / Reads.total_reads_aligned # if Reads.total_reads_aligned != 0 else 0
         return self.adj_primary_wt_3
 class Reads:
     total_reads_aligned = 0
@@ -329,7 +337,7 @@ class Parser:
         return (read_name, mate_name, read_length, template_length)
 
     @staticmethod
-    def read_bam_file(bamfile_name, bins):
+    def read_bam_file(bamfile_name, bins0): #, perfect_alignment, read_objects):
         total_reads = 0
         read_objects = defaultdict()
         perfect_alignment = defaultdict(lambda: defaultdict(int))
@@ -351,6 +359,31 @@ class Parser:
         total_reads = len(discarded_reads) + len(read_objects.keys())
         bamfile.close()
         return(total_reads, perfect_alignment, read_objects)
+
+
+    @staticmethod
+    def read_selfbam_file(bamfile_name, bins):
+        total_reads = 0
+        read_objects = defaultdict()
+        perfect_alignment = defaultdict(lambda: defaultdict(int))
+        discarded_reads = set()
+
+        # Read the BAM file
+        bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
+        for aln in bamfile.fetch(until_eof=True):
+            read_name, mates_name, read_length, template_length = Parser.extract_read_info(aln)
+            if Parser.is_perfect_alignment(aln):
+                # read_info[read_name] = (mates_name, read_length, template_length)
+                read = Reads(read_name, mates_name, read_length, template_length)
+                read_objects[read_name] = read
+                strain_name = bins[aln.reference_name] # bins[contig_name] --> strain name
+                perfect_alignment[read_name][strain_name] += 1
+            else:
+                discarded_reads.add(read_name)
+
+        total_reads = len(discarded_reads) + len(read_objects.keys())
+        bamfile.close()
+        return(total_reads, strain_name, perfect_alignment, read_objects)
 
     @staticmethod
     def get_db_metadata(fasta_list, fasta_filename):
@@ -394,7 +427,7 @@ class Parser:
                 str(strain.adj_primary_wt_2) +','+ \
                 str(strain.adj_primary_wt_3) +','+ \
                 str(strain.uniqueness_score) +','+ \
-                str(strain.uniquely_covered_bases)
+                str(strain.genome_size-strain.uniquely_covered_bases)
             for contig_name, contig_len in strain.contigs.items():
                 line += str(first_half)  +','+ \
                         contig_name +','+ \
@@ -418,13 +451,48 @@ strains_list = all_strain_obj.keys()
 Strains.total_strains = len(all_strain_obj.keys())
 logging.info('\t%d contigs assigned to %d strains', len(bins.keys()), Strains.total_strains)
 ###############################################################################
+# Parse the self aligned refernece genome BAM file
+###############################################################################
+selfbamfile_names = list()
+bam_total_reads = 0
+#read_objects1 = defaultdict()
+all_perfect_alignment =  defaultdict(lambda: defaultdict(int))
+all_read_objects = defaultdict()
+for filename in os.listdir(selfbamfile_dir):
+    full_filename = os.path.join(selfbamfile_dir, filename)
+    if os.path.isfile(full_filename) and filename.endswith(".bam"):
+        selfbamfile_names.append(full_filename)
+        logging.info('Processing the self-aligned BAM file: %s ...', filename)
+        read_objects1 = defaultdict()
+        mytotal_reads_aligned, strain_name, perfect_alignment1, read_objects1 = Parser.read_selfbam_file(full_filename, bins )
+        all_perfect_alignment.update(perfect_alignment1)
+        all_read_objects.update(read_objects1)
+        print ("selfbam file:", strain_name, mytotal_reads_aligned)
+        Strains(strain_name).self_aligned_reads_number = mytotal_reads_aligned
+        Reads.total_reads_aligned += mytotal_reads_aligned
+
+Reads.reads_w_perfect_alignments = len(all_perfect_alignment.keys())
+logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).',
+    Reads.reads_w_perfect_alignments,
+    Reads.total_reads_aligned,
+    Reads.reads_w_perfect_alignments*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0
+    )
+#print (selfbamfile_names)
+###############################################################################
 # Parse the BAM file
 ###############################################################################
-logging.info('Processing the BAM file: %s ...', bamfile_name)
+logging.info('Processing the merged BAM file: %s ...', bamfile_name)
 read_objects = defaultdict()
-Reads.total_reads_aligned, perfect_alignment, read_objects = Parser.read_bam_file(bamfile_name, bins)
+bam_total_reads = 0
+bam_total_reads, perfect_alignment, read_objects = Parser.read_bam_file(bamfile_name, bins) #, perfect_alignment1, read_objects1)
 
-Reads.reads_w_perfect_alignments = len(perfect_alignment.keys())
+Reads.total_reads_aligned += bam_total_reads
+
+all_perfect_alignment.update(perfect_alignment)
+all_read_objects.update(read_objects )
+
+#print (" # of read objects", len(all_read_objects.keys()) )
+Reads.reads_w_perfect_alignments = len(all_perfect_alignment.keys())
 logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).',
     Reads.reads_w_perfect_alignments,
     Reads.total_reads_aligned,
@@ -436,20 +504,20 @@ logging.info('\tUsed %d reads with perfect alignments, out of %d (%7.3f%%).',
 ###############################################################################
 
 logging.info('Separating the Primary from the Escrow alignments ...')
-for read_name in perfect_alignment.keys():
+for read_name in all_perfect_alignment.keys():
     # mate_name, read_length, template_length = read_info[read_name]
     # read = Reads(read_name, mate_name, read_length, template_length)
     # read_objects[read_name] = read
 
-    read = read_objects[read_name]
+    read = all_read_objects[read_name]
 
-    if read.mates_unique_name in perfect_alignment.keys():
+    if read.mates_unique_name in all_perfect_alignment.keys():
         # This means the mate had a perfect match too.
         read.mate_has_perfect_match = True
 
-    read.num_strains = len(perfect_alignment[read_name].keys())
+    read.num_strains = len(all_perfect_alignment[read_name].keys())
 
-    for strain_name in perfect_alignment[read_name].keys():
+    for strain_name in all_perfect_alignment[read_name].keys():
         read.add_exact_match(all_strain_obj[strain_name])
 
     if read.num_strains == 1:
@@ -458,6 +526,8 @@ for read_name in perfect_alignment.keys():
         read.in_singular_bin = True
         Reads.total_singular_reads += 1
 
+del all_perfect_alignment
+del perfect_alignment1
 del perfect_alignment
 
 logging.info('\tUsed %d reads for primary distribution, out of %d (%7.3f%%) reads with perfect alignments or %7.3f%% of total.',
@@ -467,23 +537,23 @@ logging.info('\tUsed %d reads for primary distribution, out of %d (%7.3f%%) read
     Reads.total_singular_reads*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0
     )
 
-if len(read_objects.keys()) != Reads.reads_w_perfect_alignments:
+if len(all_read_objects.keys()) != Reads.reads_w_perfect_alignments:
     logging.critical('Read %d reads with perfect alignments, but created %d read objects. There is something fishy going on here...',
     Reads.reads_w_perfect_alignments,
-    len(read_objects.keys())
+    len(all_read_objects.keys())
     )
     sys.exit()
 ###############################################################################
 # Processing the reads that mapped exclusively to a single strain
 ###############################################################################
-for name, read in read_objects.items():
+for name, read in all_read_objects.items():
     if read.has_voted:
         continue
 
     # if read.mates_unique_name in read_objects.keys():
     if read.mate_has_perfect_match:
         # Means both reads in a mate are prefect alignments
-        mate = read_objects[read.mates_unique_name]
+        mate = all_read_objects[read.mates_unique_name]
         strain_name = Parser.choose_primary_candidate(read, mate)
 
         if strain_name is not None:
@@ -501,6 +571,7 @@ logging.info('\t%d reads will be used for singular alignment strain abundance ou
     Reads.total_singular_reads_in_pairs*100/Reads.reads_w_perfect_alignments if Reads.reads_w_perfect_alignments !=0 else 0,
     Reads.total_singular_reads_in_pairs*100/Reads.total_reads_aligned if Reads.total_reads_aligned !=0 else 0)
 
+del all_read_objects
 del read_objects
 ###############################################################################
 # Calculate unique number of bases covered for each genome

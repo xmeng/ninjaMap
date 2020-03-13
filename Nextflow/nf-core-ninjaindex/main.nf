@@ -91,7 +91,7 @@ Channel
 
 genome_files = Channel.fromPath(params.genomes)
 //split it into three channels
-genome_files.into {genomes_ch2; genomes_ch3; genomes_ch4}
+genome_files.into {genomes_ch2; genomes_ch3; genomes_ch4; genomes_ch5}
 
 
 // Header log info
@@ -326,6 +326,35 @@ process bowtie2_mapping {
     run_bowtie2.sh $filtered_fa $fq1 $fq2 &> bowtie2.log
     """
 }
+
+genome_ch5
+				.toSortedList{file -> file.name }
+				.flatten()
+				.set{sorted_genome_ch}
+
+/*
+*
+   STEP 3.2
+   Generate the bowtie2 index for each genome itself,
+	 that is, get self-aligned bam files
+*/
+
+process bowtie2_self_mapping {
+    cpus 4
+    tag "$self_fa"
+		publishDir "${params.outdir}/bowtie2_self_alignment", mode:'copy'
+    input:
+    file self_fa from sorted_genome_ch
+		set file(fq1), file(fq2) from sorted_zipped_fq
+
+    output:
+    file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam" into self_bam_ch
+
+    script:
+    """
+    run_bowtie2.sh $self_fa $fq1 $fq2 &> bowtie2.log
+    """
+}
 //bam_ch.view()
 //bam_ch.into { bam_ch1; bam_ch2}
 
@@ -414,6 +443,7 @@ process generate_Ninja_Index {
   file bam from merged_bam_ch
   file bam_index from merged_bam_index_ch
   file 'fasta-dir/*' from genomes_ch4.toSortedList()
+  file 'selfbam-dir/*' from self_bam_ch.toSortedList()
 
   output:
   file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
@@ -421,7 +451,7 @@ process generate_Ninja_Index {
 
   script:
   """
-	ninjaIndex.sh $bam fasta-dir "final" $bam_index
+	ninjaIndex.sh $bam fasta-dir selfbam-dir "final" $bam_index
   """
 }
 

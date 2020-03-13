@@ -18,7 +18,8 @@ START_TIME=$SECONDS
 
 INBAM="${1}"
 INFASTA="${2}"
-PREFIX="${3}"
+INSELFBAM="${3}"
+PREFIX="${4}"
 
 coreNum="${coreNum:-1}"
 #echo "${PATH}"
@@ -36,7 +37,7 @@ NINJA_OUTPUT="${LOCAL_OUTPUT}/ninjaIndex"
 LOCAL_FA_PATH="${OUTPUTDIR}/reference_fasta"
 
 mkdir -p "${OUTPUTDIR}" "${LOCAL_OUTPUT}" "${LOG_DIR}"
-mkdir -p "${LOCAL_FA_PATH}" "${NINJA_OUTPUT}"
+mkdir -p "${LOCAL_FA_PATH}" "${NINJA_OUTPUT}" "${LOCAL_SELFBAM_PATH}"
 
 trap '{aws s3 sync "${LOCAL_OUTPUT}";
     rm -rf ${OUTPUTDIR} ;
@@ -51,10 +52,12 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}";
 #done
 
 cp -r ${INFASTA}/* ${LOCAL_FA_PATH}
+cp -r ${INSELFBAM}/* ${LOCAL_SELFBAM_PATH}
 
 /bin/bash -c "source activate nf-core-ninjaindex-1.0dev" && ninjaIndex.py \
     -bam ${INBAM} \
     -fastadir ${LOCAL_FA_PATH} \
+    -selfbamdir ${LOCAL_SELFBAM_PATH} \
     -prefix "${NINJA_OUTPUT}/${PREFIX}" | tee -a "${LOG_DIR}/${PREFIX}_ninjaIndex.binmap.log"
 
 ls "${LOCAL}"
