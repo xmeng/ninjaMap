@@ -297,6 +297,8 @@ zipped_fq2
 				 .set{ sorted_zipped_fq }
 //sorted_zipped_fq.view()
 
+sorted_zipped_fq.into { sorted_zipped_fq1; sorted_zipped_fq2 }
+
 filtered_genome_ch
 				.toSortedList{file -> file.name }
 				.flatten()
@@ -316,7 +318,7 @@ process bowtie2_mapping {
 		publishDir "${params.outdir}/bowtie2_mapping", mode:'copy'
     input:
     file filtered_fa from sorted_filtered_genome_ch
-		set file(fq1), file(fq2) from sorted_zipped_fq
+		set file(fq1), file(fq2) from sorted_zipped_fq1
 
     output:
     file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam" into bam_ch
@@ -327,7 +329,7 @@ process bowtie2_mapping {
     """
 }
 
-genome_ch5
+genomes_ch5
 				.toSortedList{file -> file.name }
 				.flatten()
 				.set{sorted_genome_ch}
@@ -345,7 +347,7 @@ process bowtie2_self_mapping {
 		publishDir "${params.outdir}/bowtie2_self_alignment", mode:'copy'
     input:
     file self_fa from sorted_genome_ch
-		set file(fq1), file(fq2) from sorted_zipped_fq
+		set file(fq1), file(fq2) from sorted_zipped_fq2
 
     output:
     file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam" into self_bam_ch
