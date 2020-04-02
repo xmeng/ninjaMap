@@ -23,5 +23,11 @@ RUN chmod +x /usr/local/bin/genome_filter.py
 ADD ninjaIndex.py /usr/local/bin/ninjaIndex.py
 RUN chmod +x /usr/local/bin/ninjaIndex.py
 
+ADD ninjaIndex_origin.py /usr/local/bin/ninjaIndex_origin.py
+RUN chmod +x /usr/local/bin/ninjaIndex_origin.py
+
 ADD ninjaIndex.sh /usr/local/bin/ninjaIndex.sh
 RUN chmod +x /usr/local/bin/ninjaIndex.sh
+
+ADD ninjaIndex_origin.sh /usr/local/bin/ninjaIndex_origin.sh
+RUN chmod +x /usr/local/bin/ninjaIndex_origin.sh

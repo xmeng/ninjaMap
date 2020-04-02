@@ -22,6 +22,8 @@ def helpMessage() {
     nextflow run ninjaindex.nf --genomes 'path/to/*.fna' --outdir ./output -profile docker
     nextflow run main.nf --genomes 's3://path/to/*.fna' --outdir 's3://path/to/' -profile czbiohub_aws
     s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20190911/scv2/reference_fasta/
+    nextflow run /home/ec2-user/gitdir/ninjaMap/Nextflow/nf-core-ninjaindex/origin.nf -resume  --genomes 's3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/20190720_00_NinjaIndex/uniform10x/setup/reference_fasta/*.fna' --outdir 's3://czbiohub-microbiome/Xiandong_Meng/Nextflow/test17' -profile czbiohub_aws >> output
+
 
     Mandatory arguments:
       --genomes                     Path to reference genome directory (must be surrounded with quotes)
@@ -238,55 +240,6 @@ zipped_fq.into { zipped_fq1; zipped_fq2 }
    Generate a SAM file header for aligning reads to all_genome reference
 */
 
-// select 1 set of fastq files only for mapping
-zipped_fq1
-				 .take( 1 )
-				 .set{ selected_fq }
-
-process bowtie2_mapping_sam_header {
-    echo true
-    tag "$fq1"
-
-		publishDir "${params.outdir}/sam_header", mode:'copy'
-		input:
-		file all_genome from genomes_combined1.collect()
-  	set file(fq1), file(fq2) from selected_fq
-
-    output:
-    //file all_genome
-    file "tmp_*/Sync/bowtie2/*.header.sam" into sam_ch
-
-    script:
-    """
-    run_bowtie2_header.sh $all_genome $fq1 $fq2 &> header_sam.log
-    """
-}
-/*
-*
-   STEP 2
-   Generate subset of reference genomes from the entire genome datasets
-   subset genome = all_genomes - target genome
-*/
-
-process generate_filtered_fasta {
-  echo true
-  tag "$target_fa"
-  publishDir "${params.outdir}/filtered_genomes", mode:'copy', overwrite: true
-
-  input:
-	file all_genome from genomes_combined2.collect()
-	file target_fa from genomes_ch3
-
-  output:
-  file "${target_fa.baseName}.filtered.genome.fa" into filtered_genome_ch
-
-  script:
-  """
-  genome_filter.py  $target_fa $all_genome ${target_fa.baseName}.filtered.genome.fa
-
-  """
-}
-
 
 
 // Sort files in channels to match fastq vs. genomes
@@ -299,7 +252,7 @@ zipped_fq2
 
 sorted_zipped_fq.into { sorted_zipped_fq1; sorted_zipped_fq2 }
 
-filtered_genome_ch
+genomes_ch3
 				.toSortedList{file -> file.name }
 				.flatten()
 				.set{sorted_filtered_genome_ch}
@@ -334,56 +287,9 @@ genomes_ch5
 				.flatten()
 				.set{sorted_genome_ch}
 
-/*
-*
-   STEP 3.2
-   Generate the bowtie2 index for each genome itself,
-	 that is, get self-aligned bam files
-*/
 
-process bowtie2_self_mapping {
-    cpus 4
-    tag "$self_fa"
-		publishDir "${params.outdir}/bowtie2_self_alignment", mode:'copy'
-    input:
-    file self_fa from sorted_genome_ch
-		set file(fq1), file(fq2) from sorted_zipped_fq2
-
-    output:
-    file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam" into self_bam_ch
-    file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam.bai" into self_bai_ch
-
-    script:
-    """
-    run_bowtie2.sh $self_fa $fq1 $fq2 &> bowtie2.log
-    """
-}
 //bam_ch.view()
 //bam_ch.into { bam_ch1; bam_ch2}
-
-/*
-*
-STEP 3.5
-  		perform reheader for each bam file
-*/
-process reheader_BAM_file {
-  //errorStrategy 'ignore'
-  tag "$bam"
-	publishDir "${params.outdir}/reheaderBAMs", mode:'copy'
-
-  input:
-	file header_sam from sam_ch.collect()
-	file bam from bam_ch
-
-  output:
-  file "${bam.baseName}.reheader.bam" into reheader_bam_ch
-
-	script:
-	"""
-	samtools reheader -i $header_sam $bam > ${bam.baseName}.reheader.bam
-
-  """
-}
 
 /*
 *
@@ -397,7 +303,7 @@ process generate_merged_BAM_file {
 	publishDir "${params.outdir}/mergedBAMs", mode:'copy'
 
   input:
-  file bamlist from reheader_bam_ch.collect()
+  file bamlist from bam_ch.collect()
 
   output:
   file "bamfiles.list"
@@ -434,7 +340,7 @@ STEP 5
 process generate_Ninja_Index {
 
   memory { 256.GB * task.attempt }
-  time { 6.hour * task.attempt }
+  time { 12.hour * task.attempt }
 
   errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
   maxRetries 2
@@ -446,8 +352,6 @@ process generate_Ninja_Index {
   file bam from merged_bam_ch
   file bam_index from merged_bam_index_ch
   file 'fasta-dir/*' from genomes_ch4.toSortedList()
-  file 'selfbam-dir/*' from self_bam_ch.toSortedList()
-  file 'selfbam-dir/*' from self_bai_ch.toSortedList()
 
   output:
   file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
@@ -455,7 +359,7 @@ process generate_Ninja_Index {
 
   script:
   """
-	ninjaIndex.sh $bam fasta-dir selfbam-dir "final" $bam_index
+	ninjaIndex_origin.sh $bam fasta-dir "final" $bam_index
   """
 }
 
