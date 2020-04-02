@@ -273,7 +273,7 @@ process bowtie2_mapping {
 
     script:
     """
-    run_bowtie2.sh $all_genome $fq1 $fq2 &> bowtie2.log
+    run_bowtie2_origin.sh $all_genome $fq1 $fq2 &> bowtie2.log
     """
 }
 

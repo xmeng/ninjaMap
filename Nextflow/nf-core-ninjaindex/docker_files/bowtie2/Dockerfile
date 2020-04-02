@@ -16,6 +16,8 @@ RUN conda install -c bioconda -y bowtie2 samtools bbmap
 RUN conda install -c conda-forge -y awscli
 
 ADD run_bowtie2.sh /usr/local/bin/run_bowtie2.sh
+ADD run_bowtie2_origin.sh /usr/local/bin/run_bowtie2_origin.sh
 ADD run_bowtie2_header.sh /usr/local/bin/run_bowtie2_header.sh
 RUN chmod +x /usr/local/bin/run_bowtie2.sh
+RUN chmod +x /usr/local/bin/run_bowtie2_origin.sh
 RUN chmod +x /usr/local/bin/run_bowtie2_header.sh
