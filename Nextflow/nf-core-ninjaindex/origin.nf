@@ -262,7 +262,7 @@ sorted_zipped_fq.into { sorted_zipped_fq1; sorted_zipped_fq2 }
 
 process bowtie2_mapping {
     cpus 16
-    tag "$all_genome"
+    tag "$fq1"
 		publishDir "${params.outdir}/bowtie2_mapping", mode:'copy'
     input:
     file all_genome from genomes_combined1.collect()
