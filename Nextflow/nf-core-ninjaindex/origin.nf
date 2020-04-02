@@ -252,25 +252,20 @@ zipped_fq2
 
 sorted_zipped_fq.into { sorted_zipped_fq1; sorted_zipped_fq2 }
 
-genomes_ch3
-				.toSortedList{file -> file.name }
-				.flatten()
-				.set{sorted_filtered_genome_ch}
-//sorted_filtered_genome_ch.view()
-
 /*
 *
    STEP 3
    Generate the bowtie2 index for each filtered genome
 	 and align each fastq PE file to the corresponding filtered genomes
+     file filtered_fa from sorted_filtered_genome_ch
 */
 
 process bowtie2_mapping {
-    cpus 4
-    tag "$filtered_fa"
+    cpus 16
+    tag "$all_genome"
 		publishDir "${params.outdir}/bowtie2_mapping", mode:'copy'
     input:
-    file filtered_fa from sorted_filtered_genome_ch
+    file all_genome from genomes_combined1.collect()
 		set file(fq1), file(fq2) from sorted_zipped_fq1
 
     output:
@@ -278,7 +273,7 @@ process bowtie2_mapping {
 
     script:
     """
-    run_bowtie2.sh $filtered_fa $fq1 $fq2 &> bowtie2.log
+    run_bowtie2.sh $all_genome $fq1 $fq2 &> bowtie2.log
     """
 }
 
