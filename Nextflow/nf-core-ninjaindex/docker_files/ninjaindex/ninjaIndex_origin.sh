@@ -18,7 +18,7 @@ START_TIME=$SECONDS
 
 INBAM="${1}"
 INFASTA="${2}"
-PREFIX="${4}"
+PREFIX="${3}"
 
 coreNum="${coreNum:-1}"
 #echo "${PATH}"
