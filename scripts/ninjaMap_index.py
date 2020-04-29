@@ -551,13 +551,17 @@ class Reads:
     @staticmethod
     def is_perfect_alignment(aln):
         edit_dist = aln.get_tag('NM')
-        query_len = aln.query_length
-        ref_start = aln.reference_start
-        ref_end = aln.reference_end
-        
+        # query_len = aln.query_length
+        # ref_start = aln.reference_start
+        # ref_end = aln.reference_end
+
+        query_len = aln.infer_read_length() # infer read length from CIGAR alignment.
+        aln_len = aln.query_alignment_length # length of the aligned query sequence.
+
         # https://www.biostars.org/p/106126/
-        return ((edit_dist == 0) and (query_len == aln.get_overlap(ref_start, ref_end)))
-    
+        # return ((edit_dist == 0) and (query_len == aln.get_overlap(ref_start, ref_end)))
+        return ((edit_dist == 0) and (query_len == aln_len))
+
     @staticmethod
     def parse_read_name(aln):
         '''
@@ -597,8 +601,8 @@ class Reads:
     def extract_read_info(aln):
         read_name = Reads.get_unique_read_name(aln)
         mate_name = Reads.get_unique_mate_name(aln)
-        read_length = aln.reference_length
-        template_length = aln.template_length
+        read_length = aln.infer_read_length() # infer read length from CIGAR alignment.
+        template_length = aln.template_length # the observed query template length
 
         return (read_name, mate_name, read_length, template_length)
     

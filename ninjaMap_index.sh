@@ -81,7 +81,7 @@ adapterFile="adapters,phix"
 # offLimitRegions="./data/combined_excluded_regions_threshold9.bed"
 scriptFolder="./scripts"
 BOWTIE2_DB=${LOCAL_DB_PATH}/bowtie2_index/${REFDBNAME}
-REF_FASTA=${LOCAL_DB_PATH}/${REFDBNAME}.fna
+# REF_FASTA=${LOCAL_DB_PATH}/${REFDBNAME}.fna
 
 # Copy genome reference over
 aws s3 sync --quiet ${S3DBPATH}/ ${LOCAL_DB_PATH}/

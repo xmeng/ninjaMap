@@ -1,14 +1,17 @@
 # Setup base image
-FROM continuumio/miniconda3:4.6.14 
+FROM continuumio/miniconda3:latest
+# 4.8.2
 
 USER root:root
 ENV PATH "/opt/conda/bin:$PATH"
 
 # Install dependencies
-RUN conda install -y scipy numpy pandas
-RUN conda install -c conda-forge -y awscli biopython
-RUN conda install -c bioconda -y bowtie2 samtools bedtools vcftools sambamba pysam pysamstats pybedtools bbmap
-RUN conda clean -ya
+RUN conda install --freeze-installed -y nomkl numpy pandas \
+      && conda install --freeze-installed -c conda-forge -y awscli biopython \
+      && conda install --freeze-installed -c bioconda -y bowtie2 bedtools \
+                              vcftools samtools==1.9 sambamba pysam \
+                              pysamstats pybedtools bbmap \
+      && conda clean -afy
 
 RUN mkdir -p /mnt
 WORKDIR /mnt
@@ -18,7 +21,7 @@ COPY . .
 
 # Metadata
 LABEL container.maintainer="Sunit Jain <sunit.jain@czbiohub.org>" \
-      container.base.image="continuumio/miniconda3:4.6.14" \
+      container.base.image="continuumio/miniconda3:4.8.2" \
       software.name="ninjaMap" \
       software.description="Strain abundance pipeline" \
       software.website="" \
