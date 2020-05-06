@@ -16,10 +16,10 @@ START_TIME=$SECONDS
 # S3OUTPUTPATH="s3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/20190731_00_NinjaIndex/${PREFIX}/index"
 
 
-INBAM="${1}"
-INFASTA="${2}"
-INSELFBAM="${3}"
-PREFIX="${4}"
+#INBAM="${1}"
+INFASTA="${1}"
+INSELFBAM="${2}"
+PREFIX="${3}"
 
 coreNum="${coreNum:-1}"
 #echo "${PATH}"
@@ -51,12 +51,12 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}";
 #    cp $fa ${LOCAL_DB_PATH}
     #aws s3 cp ${INFASTA} ${LOCAL_DB_PATH}
 #done
+#-bam ${INBAM} \
 
 cp -r ${INFASTA}/* ${LOCAL_FA_PATH}
 cp -r ${INSELFBAM}/* ${LOCAL_SELFBAM_PATH}
 
-/bin/bash -c "source activate nf-core-ninjaindex-1.0dev" && ninjaIndex.py \
-    -bam ${INBAM} \
+/bin/bash -c "source activate nf-core-ninjaindex-1.0dev" && ninjaIndex_multiBams.py \    
     -fastadir ${LOCAL_FA_PATH} \
     -selfbamdir ${LOCAL_SELFBAM_PATH} \
     -prefix "${NINJA_OUTPUT}/${PREFIX}" | tee -a "${LOG_DIR}/${PREFIX}_ninjaIndex.binmap.log"
