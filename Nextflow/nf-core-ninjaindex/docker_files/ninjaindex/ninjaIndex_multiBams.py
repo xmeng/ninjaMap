@@ -472,12 +472,12 @@ for filename in os.listdir(selfbamfile_dir):
     full_filename = os.path.join(selfbamfile_dir, filename)
     if os.path.isfile(full_filename) and filename.endswith(".bam"):
         selfbamfile_names.append(full_filename)
-        logging.info('Processing the self-aligned BAM file: %s ...', filename)
+        logging.info('Processing the individually aligned BAM file: %s ...', filename)
         read_objects1 = defaultdict()
         mytotal_reads_aligned, strain_name, perfect_alignment1, read_objects1 = Parser.read_selfbam_file(full_filename, bins )
         all_perfect_alignment.update(perfect_alignment1)
         all_read_objects.update(read_objects1)
-        print ("selfbam file - total reads aligned: ", strain_name, mytotal_reads_aligned)
+        print ("Total reads aligned: ", mytotal_reads_aligned)
         Strains(strain_name).self_aligned_reads_number = mytotal_reads_aligned
         Reads.total_reads_aligned += mytotal_reads_aligned
 
@@ -596,8 +596,13 @@ for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
     #singular_reads_set = set(strain.singular_bin.keys())
-    strain.calculate_singular_coverage(bamfile_name)
-    logging.info("\tDone search for :\t%s", bamfile_name)
+    #strain.calculate_singular_coverage(bamfile_name)
+    #logging.info("\tDone search for :\t%s", bamfile_name)
+    for selfbamfile in selfbamfile_names:
+        strain.calculate_singular_coverage(selfbamfile)
+        #logging.info("\tDone search for :\t%s", selfbamfile)
+    logging.info("\tDone search for :\t%s", name)
+    if False: '''
     for selfbamfile in selfbamfile_names:
         pattern = re.compile(name)
         m = pattern.match(selfbamfile)
@@ -607,6 +612,7 @@ for name, strain in all_strain_obj.items():
             logging.info("\tDone search for :\t%s", selfbamfile)
         else:
             pass
+    '''
 # del read_info
 ###############################################################################
 # Calculating Strain Weights

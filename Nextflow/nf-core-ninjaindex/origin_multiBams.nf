@@ -270,6 +270,7 @@ process bowtie2_mapping {
 
     output:
     file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam" into bam_ch
+    file "tmp_*/Sync/bowtie2/*.name_sorted.markdup.bam.bai" into bai_ch
 
     script:
     """
@@ -348,6 +349,7 @@ process generate_Ninja_Index {
   file bam_index from merged_bam_index_ch
   file 'fasta-dir/*' from genomes_ch4.toSortedList()
   file 'bam-dir/*' from bam_ch.toSortedList()
+  file 'bam-dir/*' from bai_ch.toSortedList()
 
   output:
   file "tmp_*/Sync/ninjaIndex/*.ninjaIndex.binmap.csv"
