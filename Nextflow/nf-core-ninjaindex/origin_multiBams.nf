@@ -345,8 +345,6 @@ process generate_Ninja_Index {
 	publishDir "${params.outdir}/ninjaIndex", mode:'copy'
 
   input:
-  file bam from merged_bam_ch
-  file bam_index from merged_bam_index_ch
   file 'fasta-dir/*' from genomes_ch4.toSortedList()
   file 'bam-dir/*' from bam_ch.toSortedList()
   file 'bam-dir/*' from bai_ch.toSortedList()
