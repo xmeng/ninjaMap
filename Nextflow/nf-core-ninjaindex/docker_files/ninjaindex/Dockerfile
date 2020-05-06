@@ -31,3 +31,10 @@ RUN chmod +x /usr/local/bin/ninjaIndex.sh
 
 ADD ninjaIndex_origin.sh /usr/local/bin/ninjaIndex_origin.sh
 RUN chmod +x /usr/local/bin/ninjaIndex_origin.sh
+
+
+ADD ninjaIndex_multiBams.sh /usr/local/bin/ninjaIndex_multiBams.sh
+RUN chmod +x /usr/local/bin/ninjaIndex_multiBams.sh
+
+ADD ninjaIndex_multiBams.py /usr/local/bin/ninjaIndex_multiBams.py
+RUN chmod +x /usr/local/bin/ninjaIndex_multiBams.py
