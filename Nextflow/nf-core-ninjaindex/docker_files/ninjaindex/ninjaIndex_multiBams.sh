@@ -56,7 +56,7 @@ trap '{aws s3 sync "${LOCAL_OUTPUT}";
 cp -r ${INFASTA}/* ${LOCAL_FA_PATH}
 cp -r ${INSELFBAM}/* ${LOCAL_SELFBAM_PATH}
 
-/bin/bash -c "source activate nf-core-ninjaindex-1.0dev" && ninjaIndex_multiBams.py \    
+/bin/bash -c "source activate nf-core-ninjaindex-1.0dev" && ninjaIndex_multiBams.py \
     -fastadir ${LOCAL_FA_PATH} \
     -selfbamdir ${LOCAL_SELFBAM_PATH} \
     -prefix "${NINJA_OUTPUT}/${PREFIX}" | tee -a "${LOG_DIR}/${PREFIX}_ninjaIndex.binmap.log"
