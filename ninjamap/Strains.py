@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 
-import gzip
 import os
-import re
 import sys
-from collections import Counter, defaultdict
-from time import perf_counter as timer
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import pybedtools
 import pysam
-
 
 class Strains:
     total_genome_size = 0

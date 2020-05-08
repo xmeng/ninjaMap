@@ -57,22 +57,25 @@ def process_raw_seedfile(seedfile):
 
 def download_genome(genome_name, reference_id, ftp_link, fasta_dir, metadata_dir):
     # max_retries = 5
-    localname = f'{fasta_dir}/{genome_name}__{reference_id}.fna.gz'
+    
     if ftp_link.startswith('s3://'):
+        localname = f'{fasta_dir}/{genome_name}.fna.gz'
         import boto3
         s3 = boto3.client('s3')
         bucket = ftp_link.split('/')[2]
         key = '/'.join(ftp_link.split('/')[3:])
         local_filename = localname
-        # print(f'B:{bucket}\tK:{key}')
+        print(f'B:{bucket}\tK:{key}')
         with open(localname, 'wb') as f:
             try:
                 s3.download_fileobj(bucket, key, f)
             except:
-                error_msg = "\n".join(sys.exc_info())
-                print(f'[ERROR] Unable to retrieve reference from URL {ftp_link}\nThe following error occurred: {error_msg}')
+                # error_msg = "\n".join(sys.exc_info())
+                # print(f'[ERROR] Unable to retrieve reference from URL {ftp_link}\nThe following error occurred: {error_msg}')
+                print(f'[ERROR] Unable to retrieve reference from URL {ftp_link}')
                 sys.exit(1)
     else:
+        localname = f'{fasta_dir}/{genome_name}__{reference_id}.fna.gz'
         try:
             import urllib
             local_filename, _ = urllib.request.urlretrieve(ftp_link, localname)
@@ -185,8 +188,8 @@ if __name__ == '__main__':
         db_files=db_files.apply(pd.Series).dropna()
         db_files.columns=['fastafiles', 'binfiles', 'metafiles']
     except:
-        error_msg = "\n".join(sys.exc_info())
-        print(f'[FATAL] {error_msg}')
+        # error_msg = "\n".join(sys.exc_info())
+        # print(f'[FATAL] {error_msg}')
         sys.exit(1)
     
     # Concatenate data

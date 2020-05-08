@@ -35,7 +35,7 @@ minPercId="${minPercId:-0}"
 minReadQuality="${minReadQuality:-0}"
 minMapQuality="${minMapQuality:-10}"
 minAlnCov="${minAlnCov:-0}"
-
+export NUMEXPR_MAX_THREADS="${coreNum}" # required for numpy
 # Inputs
 # S3OUTPUTPATH=s3://czbiohub-microbiome/Sunit_Jain/Synthetic_Community/ninjaMap/2019-05-16_StrainVerification/Dorea-longicatena-DSM-13814
 # fastq1=s3://czbiohub-microbiome/Original_Sequencing_Data/180727_A00111_0179_BH72VVDSXX/Alice_Cheng/Strain_Verification/Dorea-longicatena-DSM-13814_S275_R1_001.fastq.gz
@@ -139,6 +139,9 @@ bowtie2 \
 # Removed: -f 3 \
 # Removed: -D 10 -R 2 -L 31 -i S,0,2.50 -N 0
 # Added: --very-sensitive
+# 20200504: (based on: http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#mates-can-overlap-contain-or-dovetail-each-other)
+#           Try adding --no-overlap and --no-contain. Since this should reduce the number of spurious matches, also try 
+#           replacing -k ${maxAlignments} with -a for all.
 
 # Fix Mates
 samtools sort \

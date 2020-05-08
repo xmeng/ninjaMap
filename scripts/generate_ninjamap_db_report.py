@@ -7,19 +7,19 @@ import numpy as np
 import pandas as pd
 
 input_dir = sys.argv[1].rstrip('/')
-prefix = sys.argv[2]
+dbname = sys.argv[2]
 
 # input_dir = 's3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Index/SCv1_1_20200422'
 output_dir = input_dir
 # output_dir = '/Users/sunit.jain/Research/NinjaMap/Database/SCv1_1_20200422'
-report_csv = f'{prefix}.report.csv'
+report_csv = f'{dbname}.report.csv'
 
 checkm_summary_file = f'{input_dir}/qc/checkm/qc.tsv'
 gtdbtk_summary_file = f'{input_dir}/qc/GTDBtk/gtdbtk.bac120.summary.tsv'
 genome_summary_file = f'{input_dir}/qc/stats/fasta_stats.txt'
 gene_summary_file  = f'{input_dir}/qc/orfs/num_genes.txt'
 
-database_basic_stat = f'{input_dir}/db/SCv1_1.db_metadata.tsv'
+database_basic_stat = f'{input_dir}/db/{dbname}.db_metadata.tsv'
 
 def checkm_score(row):
     # From GTDB:
@@ -71,17 +71,25 @@ def parse_seqkit_stats(stats_file):
     return df[keep_cols].set_index('bin_name')
 
 if __name__ == '__main__':
+    print('Parsing CheckM output ...')
     checkm_df = parse_checkm_output(checkm_summary_file).set_index('bin_name')
+    print('Parsing Genome stats ...')
     db_stats_df = pd.read_csv(database_basic_stat).rename(columns={'GenomeName':'bin_name'}).set_index('bin_name')
+    print('Parsing GTDBtk output ...')
     gtdb_df = parse_gtdb_outputs(gtdbtk_summary_file)
+    print('Parsing Seqkit stats ...')
     bin_stats_df = parse_seqkit_stats(genome_summary_file)
+    print('Parsing Genes output ...')
     genes_df = parse_gene_stats(gene_summary_file)
 
     ## Aggregate
+    print('Aggregating data ...')
     bins_df = pd.concat([db_stats_df,
                         bin_stats_df,
                         genes_df,
                         gtdb_df, 
                         checkm_df],
                         axis=1, sort=False).sort_values('checkm_score', ascending = True).reset_index().rename(columns={'index':'bin_name'})
+    print('Writing output ...')
     bins_df.to_csv(os.path.join(output_dir,report_csv), index = False)
+    print('Done.')
