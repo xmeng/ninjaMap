@@ -81,6 +81,7 @@ def sam2bam(samfile_name, sort_by='coord', cores = 4):
     return sorted_bam
 
 def calculate_coverage(bamfile_name, output_dir):
+    os.makedirs(f'{output_dir}/tmp', exist_ok=True)
     pybedtools.set_tempdir(f'{output_dir}/tmp')
     bed = pybedtools.BedTool(bamfile_name)
     df = bed.genome_coverage(dz = True).to_dataframe(names=['contig','pos', 'depth'])

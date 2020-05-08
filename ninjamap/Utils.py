@@ -4,7 +4,7 @@ import gzip
 import os
 import sys
 from collections import Counter, defaultdict
-
+import math
 import numpy as np
 import pandas as pd
 # import pybedtools
@@ -93,59 +93,59 @@ def get_series_stats(given_series):
 # Static methods from ninjaIndex
 ##################################
 
-def create_db_metadata(fasta_list, fasta_filename):
-    # formerly called get_db_metadata
-    '''
-    read the fasta files
-    return bins, all_strain_obj, strains_list, concatenated fasta file
-    '''
-    bins = defaultdict()
-    all_strain_obj = defaultdict()
+# def create_db_metadata(fasta_list, fasta_filename):
+#     # formerly called get_db_metadata
+#     '''
+#     read the fasta files
+#     return bins, all_strain_obj, strains_list, concatenated fasta file
+#     '''
+#     bins = defaultdict()
+#     all_strain_obj = defaultdict()
 
-    with open(fasta_filename, "w") as fasta_output:
-        for input_file in fasta_list:
-            # fasta_sequences = SeqIO.parse(open(input_file),'fasta')
-            tmp_strain_name = os.path.basename(input_file)
-            strain_name = os.path.splitext(tmp_strain_name)[0]
-            strain = Strains(strain_name)
-            all_strain_obj[strain_name] = strain
-            # strains_list.append(strain_name)
-            with open(input_file, "r") as fasta_input:
-                for fasta in SeqIO.parse(fasta_input,'fasta'):
-                    contig_name, sequence = fasta.id, str(fasta.seq)
-                    contig_len = len(sequence)
-                    strain.add_contig(contig_name, contig_len)
-                    bins[contig_name] = strain_name
-                    Strains.total_genome_size += contig_len
+#     with open(fasta_filename, "w") as fasta_output:
+#         for input_file in fasta_list:
+#             # fasta_sequences = SeqIO.parse(open(input_file),'fasta')
+#             tmp_strain_name = os.path.basename(input_file)
+#             strain_name = os.path.splitext(tmp_strain_name)[0]
+#             strain = Strains(strain_name)
+#             all_strain_obj[strain_name] = strain
+#             # strains_list.append(strain_name)
+#             with open(input_file, "r") as fasta_input:
+#                 for fasta in SeqIO.parse(fasta_input,'fasta'):
+#                     contig_name, sequence = fasta.id, str(fasta.seq)
+#                     contig_len = len(sequence)
+#                     strain.add_contig(contig_name, contig_len)
+#                     bins[contig_name] = strain_name
+#                     Strains.total_genome_size += contig_len
 
-                    SeqIO.write(fasta, fasta_output , "fasta")
+#                     SeqIO.write(fasta, fasta_output , "fasta")
 
-    return (bins, all_strain_obj, fasta_filename)
+#     return (bins, all_strain_obj, fasta_filename)
 
-def create_bin_map(all_strain_obj, binmap_file):
-    binmap = open(binmap_file, 'w')
-    # Header
-    # strain_name, strain_wt_1, strain_wt_2, strain_wt_3, strain_score, strain_unique_bases, contig_name, contig_length
-    binmap.write('Strain_Name,Strain_Weight_Andres,Strain_Weight_Original, Strain_Weight_UScore,Strain_Uniqueness_Score,Strain_Absolute_Unique_Bases,Contig_Name,Contig_Length\n')
-    for name, strain in all_strain_obj.items():
-        line = ''
-        first_half = strain.name +','+ \
-            str(strain.adj_primary_wt) +','+ \
-            str(strain.adj_primary_wt_2) +','+ \
-            str(strain.adj_primary_wt_3) +','+ \
-            str(strain.uniqueness_score) +','+ \
-            str(strain.uniquely_covered_bases)
-        for contig_name, contig_len in strain.contigs.items():
-            line += str(first_half)  +','+ \
-                    contig_name +','+ \
-                    str(contig_len) +'\n'
-        binmap.write(line)
-    binmap.close()
+# def create_bin_map(all_strain_obj, binmap_file):
+#     binmap = open(binmap_file, 'w')
+#     # Header
+#     # strain_name, strain_wt_1, strain_wt_2, strain_wt_3, strain_score, strain_unique_bases, contig_name, contig_length
+#     binmap.write('Strain_Name,Strain_Weight_Andres,Strain_Weight_Original, Strain_Weight_UScore,Strain_Uniqueness_Score,Strain_Absolute_Unique_Bases,Contig_Name,Contig_Length\n')
+#     for name, strain in all_strain_obj.items():
+#         line = ''
+#         first_half = strain.name +','+ \
+#             str(strain.adj_primary_wt) +','+ \
+#             str(strain.adj_primary_wt_2) +','+ \
+#             str(strain.adj_primary_wt_3) +','+ \
+#             str(strain.uniqueness_score) +','+ \
+#             str(strain.uniquely_covered_bases)
+#         for contig_name, contig_len in strain.contigs.items():
+#             line += str(first_half)  +','+ \
+#                     contig_name +','+ \
+#                     str(contig_len) +'\n'
+#         binmap.write(line)
+#     binmap.close()
 
 ##################################
 # 01_filter_alignments.py
 ##################################
-def parse_db_metadata(binmap_file, fastafile_name):
+def parse_db_metadata(binmap_file, fastafile_name=None):
     """
     Function that parses user inputs to create the db metadata
     Parameters
@@ -256,18 +256,10 @@ def mate_recruitment(df):
     that are common between the pair and discard the remaining strain assignments not in the intersection.
     If a common set of strains cannot be found, assign the read pair to the union of the strain assignments.
     """
-    # only run if paired;
-    # recruited_reads_set = mate_recruitment(df) # should go to primary
-    # # remove recruited reads from df
-    # mod_df = df['read_basename'][~df.read_basename.isin(recruited_reads_set)]
-
-    # # get primary and escrow read sets
-    # primary_reads_list, escrow_reads_list = mate_compromise(mod_df)
-    
     intersect = partial(reduce, operator.and_)
     df = df.reset_index()
     # First, create a set of genomes for each read separately. reset_index()
-    # Second, Calculate the intersection of genomes between fwd and reverse.
+    # Second, calculate the intersection of genomes between fwd and reverse.
     set_df = (df[['read_basename','orientation','genome_name']]
         .groupby(['read_basename','orientation'])
         .agg(
@@ -305,8 +297,8 @@ def identify_primary_and_escrow_reads(whole_table_file, prefix, paired):
     primary_df.to_csv(f'{prefix}.ninjaMap.primary.csv.gz', index=False)
     escrow_df.to_csv(f'{prefix}.ninjaMap.escrow.csv.gz', index=False)
 
-    primary_reads_series = primary_df.read_basename.unique()
-    escrow_reads_series = escrow_df.read_basename.unique()
+    primary_reads_series = set(primary_df.read_basename.unique())
+    escrow_reads_series = set(escrow_df.read_basename.unique())
 
     common_reads_error = intersection(primary_reads_series, escrow_reads_series)
     if len(common_reads_error) > 0:
@@ -315,181 +307,84 @@ def identify_primary_and_escrow_reads(whole_table_file, prefix, paired):
 
     return(primary_reads_series, escrow_reads_series)
 
-# def _split_bam_by_readtype(primary_df, escrow_df, 
-#                         bamfile_name, prefix, paired):
-
-#     # Create a template for output BAM using the bamfile parameter
-#     primary_bamfile_name, primary_bamfile_handle = get_bam_filehandle(bamfile_name, prefix, 'primary')
-#     escrow_bamfile_name, escrow_bamfile_handle = get_bam_filehandle(bamfile_name, prefix, 'escrow')
-#     bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
-
-#     # Convert to numpy array for quicker lookups
-#     primary_readnames = primary_df.read_name.to_numpy()
-#     escrow_readnames = escrow_df.read_name.to_numpy()
-    
-#     # Filter the input bam file based on the subset_df provided.
-#     #   subset_df contains at least read_name, percent_id, perc_aln
-#     for aln in bamfile.fetch(until_eof=True):
-#         aln_read_name, aln_mates_name = extract_read_names(aln, paired)
-        
-#         # If the current alignment satisfies the id and aln criteria,
-#         # and is within the subset list, write to bam file.
-#         if paired:
-#             pass
-#         else:
-#             if aln_read_name in primary_readnames:
-#                 primary_bamfile_handle.write(aln)
-#             elif aln_read_name in escrow_readnames:
-#                 escrow_bamfile_handle.write(aln)
-#             else:
-#                 continue
-
-#     bamfile.close()
-#     primary_bamfile_handle.close()
-#     escrow_bamfile_handle.close()
-    
-#     return(primary_bamfile_name, escrow_bamfile_name)
-
 def write2sam(row, sam_handle):
     # remove empty elements from the list
-    row = list(filter(None, row))
     # convert each element to string and join with tabs
-    line = '\t'.join(map(str, row))
+    clean_row = '\t'.join(str(item) for item in row if item is not None)
     # write to SAM file
-    sam_handle.write(f'{line}\n')
+    sam_handle.write(f'{clean_row}\n')
     return
 
-def split_bam_by_readtype(bamfile_name, primary_reads_list, escrow_reads_list, 
-                prefix, paired, log, by='coord', cores=4, memPerCore=4):
-    bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb', threads = cores)
-    
-    primary_bam, primary_bamhandle = tools.get_bam_filehandle(bamfile_name, prefix, 'primary')
-    escrow_bam, escrow_bamhandle = tools.get_bam_filehandle(bamfile_name, prefix, 'escrow')
-    primary_found = escrow_found = 0
-    print('Reading BAM file .. ')
-    for aln in bamfile.fetch(until_eof=True):
-        alignment = Alignments(aln, paired)
-        # read_name, mate_name = Alignments.extract_read_names(aln, paired)
-        # print(f'{alignment.read_base}')
-        if alignment.read_base in primary_reads_list:
-            primary_found +=1
-            primary_bamhandle.write(aln)
-        elif alignment.read_base in escrow_reads_list:
-            escrow_found += 1
-            escrow_bamhandle.write(aln)
-        else:
-            log.critical(f'\tRead \'{alignment.read_base}\' could not be found in Primary or Escrow...')
-            sys.exit(1)
-        # if primary_found % 100 == 0:
-        #     print('.',end ='')
-        #     sys.exit(1)
-    print('\nWrote {primary_found} primary and {escrow_found} escrow alignments to disk.')
-    bamfile.close()
-    primary_bamhandle.close()
-    escrow_bamhandle.close()
-
-    sorted_primary_bam = tools.sort_and_index(primary_bam, cores = cores, memPerCore = memPerCore)
-    sorted_escrow_bam = tools.sort_and_index(escrow_bam, cores = cores, memPerCore = memPerCore)
-
-    return (sorted_primary_bam, sorted_escrow_bam)
-
 # TESTED - WORKS
-# def split_bam_by_readtype(bamfile_name, primary_df, escrow_df, 
-#                 prefix, paired, log, by='coord', cores=4, memPerCore=4):
-#     log.info(f'\tConverting BAM file, {bamfile_name} to SAM')
-#     samfile = bam2sam(bamfile_name, cores = cores)
+def split_bam_by_readtype(bamfile_name, bin, primary_list, escrow_list, 
+                prefix, paired, log, by='coord', cores=4, memPerCore=4):
+    log.info(f'\tConverting BAM file, {bamfile_name} to SAM')
+    samfile = tools.bam2sam(bamfile_name, cores = cores)
     
-#     log.info(f'\tSplitting SAM file, {samfile} to into Primary and Escrow SAM files')
-#     primary_sam = f'{prefix}.ninjaMap.primary.sam'
-#     primary_samhandle = open(primary_sam, 'w')
+    log.info(f'\tSplitting SAM file, {samfile} to into Primary and Escrow SAM files')
+    primary_sam = f'{prefix}.ninjaMap.primary.sam'
+    primary_samhandle = open(primary_sam, 'w')
 
-#     escrow_sam = f'{prefix}.ninjaMap.escrow.sam'
-#     escrow_samhandle = open(escrow_sam, 'w')
+    escrow_sam = f'{prefix}.ninjaMap.escrow.sam'
+    escrow_samhandle = open(escrow_sam, 'w')
 
-#     # Write headers
-#     log.info(f'\t\tCreating Primary and Escrow SAM headers from {samfile} ...')
-#     num_cols = 0
-#     last_line = 0
-#     with open(samfile, "r") as samhandle:
-#         for lnum, line in enumerate(samhandle):
-#             columns = line.split('\t')
-#             num_cols = len(columns)
-#             last_line = lnum
+    # Write headers
+    log.info(f'\t\tCreating Primary and Escrow SAM headers from {samfile} ...')
+    num_cols = 0
+    last_line = 0
+    with open(samfile, "r") as samhandle:
+        for lnum, line in enumerate(samhandle):
+            # columns = line.split('\t')
+            # num_cols = len(columns)
+            last_line = lnum
 
-#             if num_cols < 11:
-#                 primary_samhandle.write(line)
-#                 escrow_samhandle.write(line)
-#             else:
-#                 break
+            # if num_cols < 11:
+            if line.startswith('@'):
+                primary_samhandle.write(line)
+                escrow_samhandle.write(line)
+            else:
+                break
 
-#             if lnum % 2000 == 0:
-#                 log.info(f'\t\t\tProcessed {lnum} lines as SAM header ...')
+            if lnum % 2000 == 0:
+                log.info(f'\t\t\tProcessed {lnum} lines as SAM header ...')
 
-#     log.info(f'\t\tProcessed a total of {lnum} lines as SAM header')
-#     # Use pandas to read the dataframe
-#     # Get SAM num of default columns:
-#     # Dec 31,2019: https://samtools.github.io/hts-specs/SAMv1.pdf
-#     sam_colnames = [f'col_{x + 1}' for x in range(num_cols)]
-#     sam_df = pd.read_table(samfile, 
-#                         header = None, index_col = False, memory_map = True,
-#                         names = sam_colnames, skiprows = last_line)
-#     log.info(f'\t\t[TMP] Retained {sam_df.shape} (rows, cols) from SAM file without headers.')
-#     # primary_readnames = primary_df.read_name.to_numpy() # for faster lookups
-#     # escrow_readnames = escrow_df.read_name.to_numpy()
-#     # Perform a filter/join based on read names in primary and escrow df
-#     for row in sam_df.iterrows():
-#         if row['col_1'] in primary_df['read_name']:
-#             # read is primary
-#             write2sam(row,primary_samhandle)
-#         elif row['col_1'] in escrow_df['read_name']:
-#             # read is escrow
-#             write2sam(row,escrow_samhandle)
-#         else:
-#             log.critical(f'\t\tRead could not be found in Primary or Escrow...')
-#             sys.exit(1)
-#     primary_samhandle.close()
-#     escrow_samhandle.close()
-
-#     log.info(f'\tConverting Primary and Escrow SAM files to BAM ...')
-#     primary_bam = sam2bam(primary_sam, sort_by = by, cores = cores)
-#     escrow_bam = sam2bam(escrow_sam, sort_by = by, cores = cores)
-#     return (primary_bam, escrow_bam)
-
-# def split_bam_by_readtype(bamfile_name, primary_df, escrow_df, 
-#                 prefix, paired, log, by='coord', cores=4, memPerCore=4):
-#     log.info(f'\tConverting BAM file, {bamfile_name} to SAM')
-#     samfile = bam2sam(bamfile_name, cores = cores)
+    log.info(f'\t\tProcessed a total of {lnum} lines as SAM header')
+    # Use pandas to read the dataframe
+    # Get SAM num of default columns:
+    # May 08,2020: http://samtools.github.io/hts-specs/SAMv1.pdf Sec 1.4
+    # 11 mandatory tab-delimited fields, more possible
+    # sam_colnames = ['query_name','bit_flag','ref_name', 
+    #                 'pos', 'map_qual','cigar','mate_name',
+    #                 'mate_pos','template_len','query_seq','query_qual',
+    #                 'optional_1', 'optional_2', ... , 'optional_N']
+    # https://stackoverflow.com/questions/55129640/read-csv-into-a-dataframe-with-varying-row-lengths-using-pandas
+    sam_df = pd.read_csv(samfile, header=None, sep='\n', skiprows = last_line)
+    sam_df = sam_df[0].str.split('\t', expand=True)
+    num_rows, num_cols = sam_df.shape
+    sam_colnames = [f'col_{x + 1}' for x in range(num_cols)]
+    sam_df.columns = sam_colnames
+    log.info(f'\t\t[TMP] Retained {num_rows} rows and {num_cols} cols from SAM file without headers.')
     
-#     log.info(f'\tSplitting SAM file, {samfile} to into Primary and Escrow SAM files')
-#     primary_sam = f'{prefix}.ninjaMap.primary.sam'
-#     primary_samhandle = open(primary_sam, 'w')
+    for row in sam_df.itertuples(index=False):
+        if row.col_1 in primary_list:
+            # read is primary
+            write2sam(row,primary_samhandle)
+        elif row.col_1 in escrow_list:
+            # read is escrow
+            write2sam(row,escrow_samhandle)
+        else:
+            log.critical(f'\t\tRead could not be found in Primary or Escrow...')
+            sys.exit(1)
+    primary_samhandle.close()
+    escrow_samhandle.close()
 
-#     escrow_sam = f'{prefix}.ninjaMap.escrow.sam'
-#     escrow_samhandle = open(escrow_sam, 'w')
-    
-#     with open(samfile, "r") as samhandle:
-#         for lnum, line in enumerate(samhandle):
-#             columns = line.split('\t')
-#             if len(columns) < 10:
-#                 primary_samhandle.write(line)
-#                 escrow_samhandle.write(line)
-#             elif columns[0] in primary_df.read_name.to_numpy():
-#                 primary_samhandle.write(line)
-#             elif columns[0] in escrow_df.read_name.to_numpy():
-#                 escrow_samhandle.write(line)
+    log.info(f'\tConverting Primary and Escrow SAM files to BAM ...')
+    primary_bam = tools.sam2bam(primary_sam, sort_by = by, cores = cores)
+    escrow_bam = tools.sam2bam(escrow_sam, sort_by = by, cores = cores)
+    return (primary_bam, escrow_bam)
 
-#             if lnum % 10000 == 0:
-#                 log.info(f'Processed {lnum} lines ...')
-
-#     log.info(f'\tConverting Primary and Escrow SAM files to BAM')
-#     primary_bam = sam2bam(primary_sam, sort_by=by, cores = cores)
-#     escrow_bam = sam2bam(escrow_sam, sort_by=by, cores = cores)
-#     return (primary_bam, escrow_bam)
-
-# def separate_alignments(filtered_table_file, bamfile_name, paired, prefix, min_id = 100, min_aln = 100):
-#     primary_df, escrow_df = _identify_primary_and_escrow_reads(filtered_table_file, min_id, min_aln)
-#     primary_bam, escrow_bam = _split_bam_by_readtype(primary_df, escrow_df, bamfile_name, prefix, paired)
-#     return(primary_bam, escrow_bam)
+def calculate_coverage(bamfile_name, output_dir):
+    return tools.calculate_coverage(bamfile_name, output_dir)
 
 ##################################
 # 03_calculate_abundance.py

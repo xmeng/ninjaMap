@@ -69,18 +69,6 @@ class Alignments():
         Alignments.reads_w_valid_alignments.add(self.read_name)
         return self.is_valid_aln
 
-    # def is_valid_alignment(pid, aln_len, min_perc_id = 100, min_perc_aln = 100):
-    #     # (pid, aln_len) = get_aln_quality(aln)
-    #     # https://www.biostars.org/p/106126/
-    #     # return ((edit_dist == 0) and (query_len == aln.get_overlap(ref_start, ref_end)))
-    #     if (pid is None):
-    #         return False
-        
-    #     if (aln_len is None):
-    #         return False
-
-    #     return (min_perc_id <= pid <= 100) and (min_perc_aln <= aln_len <= 100)
-
     def extract_read_names(self,aln):
         if self.paired:
             self.read_base = Alignments._parse_read_name(aln)
