@@ -44,10 +44,9 @@ def intersection(list1, list2):
 usage = """
     USAGE:
     python ninjaIndex.py \
--bam input_bamfile \
+-selfbamdir folder with each individually aligned bamfile\
 -fastadir folder with each genome in a separate file in fasta format. \
--bin [Output] comma-delimited binmap file for ninjaMap \
--log logfile.txt
+-prefix [Output] output prefix for a comma-delimited binmap file and a combined fasta file
     """
 
 p = argparse.ArgumentParser(
@@ -55,22 +54,21 @@ p = argparse.ArgumentParser(
     add_help=True,
     usage=argparse.SUPPRESS,
     description="""Description:
-This script will calculate the abundance of a strain in a defined microbial community.
-Usage: ninjaMap.py -bam name_sorted.bam -bin contig_strain_assignments.tsv -out abundance_table_output.tsv
+This script will calculate the strain weights in a defined microbial community.
+Usage: ninjaIndex.py -selfbamdir bam_dir -fastadir fasta_dir -prefix index_name
 """,
-    epilog="""Examples:
-python ninjaMap.py -bin contig_names_bin_map.txt -bam Bacteroides-sp-9-1-42FAA/Bacteroides-sp-9-1-42FAA.processed.sortedByCoord.bam -out Bacteroides-sp-9-1-42FAA.sorted.ninjaAbundance.tsv
+    epilog="""
 """)
-p.add_argument('-bam', dest='bamfile', action='store', type=str, #required = True,
-                help='name sorted bam file.')
+#p.add_argument('-bam', dest='bamfile', action='store', type=str, #required = True,
+#                help='name sorted bam file.')
+p.add_argument('-selfbamdir', dest='selfbamdir', action='store', type=str, required = True,
+                help='dir with self aligned genomes in separate bam files.')
 p.add_argument('-fastadir', dest='fastadir', action='store', type=str, required = True,
                 help='dir with genomes in separate fasta files.')
 p.add_argument('-"fasta_ext"', dest='ext', action='store', type=str, default = "fna",
                 help='file file extension; all files must have the same extension.')
 p.add_argument('-prefix', dest='prefix', action='store', type=str,
                 help='[Output] output prefix. Watch out for a comma-delimited binmap file and a concatenated fasta file for ninjaMap')
-p.add_argument('-selfbamdir', dest='selfbamdir', action='store', type=str, required = True,
-                help='dir with self aligned genomes in separate bam files.')
 
 # Optional
 p.add_argument('-outdir', dest='outdir', action='store', type=str,
@@ -82,7 +80,7 @@ p.add_argument('-debug', dest='debug', action='store_true', default=False,
 
 args = vars(p.parse_args())
 
-bamfile_name = args['bamfile']
+#bamfile_name = args['bamfile']
 fastafile_dir = args['fastadir']
 fasta_ext = args['ext']
 
@@ -101,10 +99,11 @@ else:
 os.makedirs(output_dir, exist_ok=True)
 
 if not args['prefix']:
-    default_prefix = os.path.basename(bamfile_name).split('.')[0]
-    prefix = os.path.join(output_dir, default_prefix)
-else:
     prefix = os.path.join(output_dir, args['prefix'])
+#    default_prefix = os.path.basename(bamfile_name).split('.')[0]
+#    prefix = os.path.join(output_dir, default_prefix)
+else:
+    prefix = args['prefix']
 
 binmap_file = prefix +'.ninjaIndex.binmap.csv'
 fasta_file = prefix + ".ninjaIndex.fasta"
@@ -229,7 +228,7 @@ class Strains():
         # This is a VERY costly operation to repeat millions of times, since it cannot be pre-calculated.
         # I have adjusted it to use the genome's absolute unique region compared to all genomes in the database.
         #print(self.genome_size, self.uniquely_covered_bases)  self.genome_size -
-        print (self.name, self.genome_size, self.uniquely_covered_bases)
+        #print (self.name, self.genome_size, self.uniquely_covered_bases)
         self.adj_primary_wt = self.cum_primary_votes / (self.uniquely_covered_bases) #if self.uniquely_covered_bases != 0 else 0
         return self.adj_primary_wt
 
@@ -238,7 +237,7 @@ class Strains():
         return self.adj_primary_wt_2
 
     def calculate_mike_drop_penalty(self):
-        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases  if Strains.total_uniquely_covered_bases != 0 else 0
+        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases  #if Strains.total_uniquely_covered_bases != 0 else 0
         return self.uniqueness_score
 
     def calculate_adj_primary_wt_uniqueness_score(self):
@@ -501,7 +500,7 @@ for filename in os.listdir(selfbamfile_dir):
         mytotal_reads_aligned, strain_name, perfect_alignment1, read_objects1 = Parser.read_selfbam_file(full_filename, bins )
         all_perfect_alignment.update(perfect_alignment1)
         all_read_objects.update(read_objects1)
-        print ("Total reads aligned: ", mytotal_reads_aligned)
+        #print ("Total reads aligned: ", mytotal_reads_aligned)
         Strains(strain_name).self_aligned_reads_number = mytotal_reads_aligned
         Reads.total_reads_aligned += mytotal_reads_aligned
 
@@ -617,13 +616,12 @@ del all_read_objects
 #print("Number of cpu : ", mp.cpu_count())
 
 logging.info('Computing coverage for each strain in the database based on singular alignments ...')
-logging.info("Number of cpus are used : %s", cpus)
+logging.info("Number of cpus is used : %s", cpus)
 pool = mp.Pool(processes=int(cpus))
-
-i = 0
+result = []
 
 #Parse by strain name
-if False: '''
+i = 0
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
@@ -635,11 +633,19 @@ for name, strain in all_strain_obj.items():
         #strain.calculate_singular_coverage(selfbamfile)
         #p = Process(target=strain.calculate_singular_coverage, args=(selfbamfile,))
         #th = threading.Thread(target=strain.calculate_singular_coverage, args=(selfbamfile, ))
-        threads.append(th)
-        th.start()
-    for th in threads:
-        th.join()
+        #threads.append(th)
+        #th.start()
+    #for th in threads:
+    #    th.join()
+        result.append(pool.apply_async(strain.calculate_singular_coverage, args=(selfbamfile,)))
 
+pool.close()
+pool.join()
+for res in result:
+    #print (res.get())
+    (my_uniquely_covered_bases, mystrain_name, my_total_uniquely_covered_bases) =res.get()
+    all_strain_obj[mystrain_name].uniquely_covered_bases += my_uniquely_covered_bases
+    Strains.total_uniquely_covered_bases += my_total_uniquely_covered_bases
 
     #pool.map(strain.calculate_singular_coverage, selfbamfile_names)
     #pool.close()
@@ -648,10 +654,11 @@ for name, strain in all_strain_obj.items():
     #for selfbamfile in selfbamfile_names:
     #    strain.calculate_singular_coverage(selfbamfile)
         #logging.info("\tDone search for :\t%s", selfbamfile)
-    logging.info("\tDone search for :\t%s", name)
-'''
+    #logging.info("\tDone search for :\t%s", name)
+logging.info("\tDone search for all strains")
+
+if False: '''
 # Parse by BAM files
-result = []
 
 for selfbamfile in selfbamfile_names:
     #cov_bamfile = pysam.AlignmentFile(selfbamfile, mode = 'rb')
@@ -683,7 +690,7 @@ for res in result:
 #for th in threads:
 #        th.join()
 
-logging.info("\tDone search all stains in :\t%s", selfbamfile)
+logging.info("\tDone search all stains") # in :\t%s", selfbamfile)
       # complete the processes
     #print("The length of list is: ", len(procs))
     #for p in procs:
@@ -692,7 +699,7 @@ logging.info("\tDone search all stains in :\t%s", selfbamfile)
 
 
     #logging.info("\tDone search all stains in :\t%s", selfbamfile)
-
+'''
 if False: '''
     for selfbamfile in selfbamfile_names:
         pattern = re.compile(name)
