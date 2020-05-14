@@ -12,6 +12,11 @@ import sys
 from Bio import SeqIO
 from collections import defaultdict, Counter
 from time import perf_counter as timer
+import multiprocessing as mp
+from multiprocessing import Process, Manager
+from multiprocessing import Pool
+import threading
+import psutil
 
 start = timer()
 ###############################################################################
@@ -83,6 +88,11 @@ fasta_ext = args['ext']
 
 selfbamfile_dir = args['selfbamdir']
 
+if not args['threads']:
+    cpus = psutil.cpu_count(logical=False)
+else:
+    cpus = args['threads']
+
 if not args['outdir']:
     output_dir = "db"
 else:
@@ -106,7 +116,7 @@ logging.info('Started')
 ###############################################################################
 # Classes
 ###############################################################################
-class Strains:
+class Strains():
     total_genome_size = 0
     total_strains = 0
     total_uniquely_covered_bases = 0
@@ -178,7 +188,8 @@ class Strains:
 
         return wt_base_depth
 
-    def calculate_singular_coverage (self, bamfile_name):
+    def calculate_singular_coverage (self, bamfile_name): #, cov_bamfile):
+        #print('Openning bam file name : ', bamfile_name)
         if self.num_singular_reads == 0:
             return
 
@@ -202,8 +213,14 @@ class Strains:
              #else:
             #     print('No match on ', contig_name)
         cov_bamfile.close()
+        #print('*** Done : ', bamfile_name)
+        return (self.uniquely_covered_bases, self.name, Strains.total_uniquely_covered_bases)
 
-        return
+    #def run(self, bamfile):
+    #        t = threading.Thread(target=self.calculate_singular_coverage, args=(bamfile,))
+            #t.start()
+            #t.join()
+            #print()
 
     def calculate_andres_adjustment(self):
         # Andres's interpretation of Mike drop adjustment.
@@ -221,7 +238,7 @@ class Strains:
         return self.adj_primary_wt_2
 
     def calculate_mike_drop_penalty(self):
-        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases # if Strains.total_uniquely_covered_bases != 0 else 0
+        self.uniqueness_score = self.uniquely_covered_bases / Strains.total_uniquely_covered_bases  if Strains.total_uniquely_covered_bases != 0 else 0
         return self.uniqueness_score
 
     def calculate_adj_primary_wt_uniqueness_score(self):
@@ -400,6 +417,10 @@ class Parser:
         return bins, all_strain_obj, strains_list, concatenated fasta file
         '''
         bins = defaultdict()
+
+        #manager=Manager()
+        #all_strain_obj=manager.dict()
+        #global all_strain_obj
         all_strain_obj = defaultdict()
 
         with open(fasta_filename, "w") as fasta_output:
@@ -455,6 +476,9 @@ for filename in os.listdir(fastafile_dir):
     full_filename = os.path.join(fastafile_dir, filename)
     if os.path.isfile(full_filename) and filename.endswith(fasta_ext):
         fastafile_names.append(full_filename)
+
+#manager=Manager()
+#all_strain_obj=manager.dict()
 
 bins, all_strain_obj, cat_fasta_filename = Parser.get_db_metadata(fastafile_names, fasta_file)
 strains_list = all_strain_obj.keys()
@@ -590,19 +614,83 @@ del all_read_objects
 ###############################################################################
 # Calculate unique number of bases covered for each genome
 ###############################################################################
+print("Number of cpu : ", mp.cpu_count())
+pool = mp.Pool(processes=cpus)
 logging.info('Computing coverage for each strain in the database based on singular alignments ...')
 i = 0
+
+#Parse by strain name
+if False: '''
 for name, strain in all_strain_obj.items():
     i += 1
     logging.info("\t[%d/%d] Searching for exclusive support for :\t%s",i, Strains.total_strains, name)
     #singular_reads_set = set(strain.singular_bin.keys())
     #strain.calculate_singular_coverage(bamfile_name)
     #logging.info("\tDone search for :\t%s", bamfile_name)
+    threads = []
     for selfbamfile in selfbamfile_names:
-        strain.calculate_singular_coverage(selfbamfile)
+        #strain.calculate_singular_coverage(selfbamfile)
+        #p = Process(target=strain.calculate_singular_coverage, args=(selfbamfile,))
+        #th = threading.Thread(target=strain.calculate_singular_coverage, args=(selfbamfile, ))
+        threads.append(th)
+        th.start()
+    for th in threads:
+        th.join()
+
+
+    #pool.map(strain.calculate_singular_coverage, selfbamfile_names)
+    #pool.close()
+    #pool.join()
+
+    #for selfbamfile in selfbamfile_names:
+    #    strain.calculate_singular_coverage(selfbamfile)
         #logging.info("\tDone search for :\t%s", selfbamfile)
     logging.info("\tDone search for :\t%s", name)
-    if False: '''
+'''
+# Parse by BAM files
+result = []
+
+for selfbamfile in selfbamfile_names:
+    #cov_bamfile = pysam.AlignmentFile(selfbamfile, mode = 'rb')
+    #procs = []
+    threads = []
+    for strain_name in strains_list:
+        strain = all_strain_obj[strain_name]
+        #strain.calculate_singular_coverage(selfbamfile, cov_bamfile )
+        #strain.calculate_singular_coverage(selfbamfile)
+        # calculage each strain in parallel
+        #print(strain_name)
+        #pool.apply(strain.calculate_singular_coverage, args=(selfbamfile,))
+        #pool.map(strain.calculate_singular_coverage, selfbamfile)
+        #th = Process(target=strain.calculate_singular_coverage, args=(selfbamfile,))
+        #th = threading.Thread(target=strain.calculate_singular_coverage, args=(selfbamfile, ))
+        #threads.append(th)
+        #th.start()
+        result.append(pool.apply_async(strain.calculate_singular_coverage, args=(selfbamfile,)))
+pool.close()
+pool.join()
+for res in result:
+    #print (res.get())
+    (my_uniquely_covered_bases, mystrain_name, my_total_uniquely_covered_bases) =res.get()
+    all_strain_obj[mystrain_name].uniquely_covered_bases += my_uniquely_covered_bases
+    Strains.total_uniquely_covered_bases += my_total_uniquely_covered_bases
+
+        #procs.append(p)
+        #p.start()
+#for th in threads:
+#        th.join()
+
+logging.info("\tDone search all stains in :\t%s", selfbamfile)
+      # complete the processes
+    #print("The length of list is: ", len(procs))
+    #for p in procs:
+    #    p.join()
+    #cov_bamfile.close()
+
+
+    #logging.info("\tDone search all stains in :\t%s", selfbamfile)
+
+if False: '''
     for selfbamfile in selfbamfile_names:
         pattern = re.compile(name)
         m = pattern.match(selfbamfile)
@@ -612,7 +700,7 @@ for name, strain in all_strain_obj.items():
             logging.info("\tDone search for :\t%s", selfbamfile)
         else:
             pass
-    '''
+'''
 # del read_info
 ###############################################################################
 # Calculating Strain Weights
