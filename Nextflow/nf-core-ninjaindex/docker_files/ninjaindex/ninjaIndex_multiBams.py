@@ -16,7 +16,7 @@ import multiprocessing as mp
 from multiprocessing import Process, Manager
 from multiprocessing import Pool
 import threading
-import psutil
+#import psutil
 
 start = timer()
 ###############################################################################
@@ -75,7 +75,7 @@ p.add_argument('-selfbamdir', dest='selfbamdir', action='store', type=str, requi
 # Optional
 p.add_argument('-outdir', dest='outdir', action='store', type=str,
                 help='output directory')
-p.add_argument('-threads', dest='threads', action='store', type=str, default=1,
+p.add_argument('-threads', dest='threads', action='store', type=str,
                 help='number of threads available for this job and subprocesses')
 p.add_argument('-debug', dest='debug', action='store_true', default=False,
                 help='save intermediate false positives bam file')
@@ -89,7 +89,7 @@ fasta_ext = args['ext']
 selfbamfile_dir = args['selfbamdir']
 
 if not args['threads']:
-    cpus = psutil.cpu_count(logical=False)
+    cpus = mp.cpu_count()
 else:
     cpus = args['threads']
 
@@ -614,9 +614,12 @@ del all_read_objects
 ###############################################################################
 # Calculate unique number of bases covered for each genome
 ###############################################################################
-print("Number of cpu : ", mp.cpu_count())
-pool = mp.Pool(processes=cpus)
+#print("Number of cpu : ", mp.cpu_count())
+
 logging.info('Computing coverage for each strain in the database based on singular alignments ...')
+logging.info("Number of cpus are used : %s", cpus)
+pool = mp.Pool(processes=int(cpus))
+
 i = 0
 
 #Parse by strain name
