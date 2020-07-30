@@ -23,6 +23,7 @@ from multiprocessing import Process
 from multiprocessing import Pool
 import pickle
 import shutil
+import zlib
 
 start = timer()
 ###############################################################################
@@ -145,7 +146,7 @@ output_tmp = output_dir+'/tmp'
 os.makedirs(output_tmp, exist_ok=True)
 
 if not args['threads']:
-    cpus = mp.cpu_count() -1
+    cpus = mp.cpu_count()
 else:
     cpus = args['threads']
 
@@ -217,7 +218,7 @@ class Strains:
 
         self.read_fraction = 0
 
-        self.covered_bases = set()
+        self.covered_bases = [] #set()
         self.contigs = defaultdict(int)
         self.singular_bin = defaultdict(int)
         self.escrow_bin = defaultdict(int)
@@ -265,7 +266,8 @@ class Strains:
 
     def _add_covered_base(self, contig_name, contig_pos):
         unique_contig_name = contig_name+'_'+str(contig_pos)
-        self.covered_bases.add(unique_contig_name)
+        #self.covered_bases.add(unique_contig_name)
+        self.covered_bases.append(zlib.compress(unique_contig_name.encode()))
 
     def calculate_singular_coverage (self, bamfile_name):
         if self.num_singular_reads == 0:
@@ -286,15 +288,18 @@ class Strains:
                         self.uniquely_covered_depth += base_cov_contribution
 
         cov_bamfile.close()
+
+        uniqueCoveredBases=set(self.covered_bases)
         strain_set_filename = self.name +'.baseset'
         output_baseset_filename = os.path.join(output_tmp, strain_set_filename)
-        pickle.dump( self.covered_bases, open( output_baseset_filename, "wb" ) )
+        pickle.dump( uniqueCoveredBases, open( output_baseset_filename, "wb" ) )
         #if (self.uniquely_covered_depth > 2147483647 or len(self.covered_bases) >2147483647 or self.total_covered_depth > 2147483647 or self.weighted_base_depth>2147483647):
         #    print (self.uniquely_covered_depth, self.name, len(self.covered_bases), self.total_covered_depth, self.weighted_base_depth )
         #    return (self.uniquely_covered_depth, self.name, len(self.covered_bases), self.total_covered_depth, self.weighted_base_depth/2147483647)
         #else:
         #Thread retrun valuse has format requires -2147483648 <= number <= 2147483647
-        return (self.uniquely_covered_depth, self.name, len(self.covered_bases), self.total_covered_depth, self.weighted_base_depth ) #2147483647, self.covered_bases) #unique_contig_name)
+        #print (self.name, len(set(self.covered_bases)))
+        return (self.uniquely_covered_depth, self.name, len(uniqueCoveredBases), self.total_covered_depth, self.weighted_base_depth ) #2147483647, self.covered_bases) #unique_contig_name)
 
     def calculate_escrow_coverage (self, bamfile_name):
         if self.num_escrow_reads == 0:
@@ -318,15 +323,16 @@ class Strains:
         # load the saved baseset file first
         strain_set_filename = self.name +'.baseset'
         input_baseset_filename = os.path.join(output_tmp, strain_set_filename)
+        uniqueCoveredBases=set(self.covered_bases)
 
         if os.path.isfile( input_baseset_filename ):
             mycovered_bases_set  = pickle.load( open( input_baseset_filename, "rb" ) )
-            self.covered_bases.update(mycovered_bases_set)
+            uniqueCoveredBases.update(mycovered_bases_set)
         # Save the added set info
         #output_baseset_filename = os.path.join(output_tmp, strain_set_filename)
         #pickle.dump( mycovered_bases_set, open( output_baseset_filename, "wb" ) )
-
-        return (self.escrow_covered_depth, self.name, len(self.covered_bases), self.total_covered_depth, self.weighted_base_depth) #, self.covered_bases) #mycovered_bases )
+        #print (self.name, len(set(self.covered_bases)), len(uniqueCoveredBases))
+        return (self.escrow_covered_depth, self.name, len(uniqueCoveredBases), self.total_covered_depth, self.weighted_base_depth) #, self.covered_bases) #mycovered_bases )
 
     def _calc_base_depth(self, pileupcolumn, bin_dict):
         wt_base_depth = 0
