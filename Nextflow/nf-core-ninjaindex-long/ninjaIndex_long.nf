@@ -216,7 +216,7 @@ process minimap2_mapping {
 		publishDir "${params.outdir}/minimap2_mapping", mode:'copy'
     input:
     file all_genome from genomes_combined1.collect()
-		file fq from long_fq.toSortedList()
+		file fq from long_fq
 
     output:
     file "tmp_*/Sync/minimap2/*.name_sorted.markdup.bam" into bam_ch
