@@ -219,8 +219,8 @@ process minimap2_mapping {
 		file fq from long_fq
 
     output:
-    file "tmp_*/Sync/minimap2/*.name_sorted.markdup.bam" into bam_ch
-    file "tmp_*/Sync/minimap2/*.name_sorted.markdup.bam.bai" into bai_ch
+    file "tmp_*/Sync/minimap2/*.name_sorted.bam" into bam_ch
+    file "tmp_*/Sync/minimap2/*.name_sorted.bam.bai" into bai_ch
 
     script:
     """

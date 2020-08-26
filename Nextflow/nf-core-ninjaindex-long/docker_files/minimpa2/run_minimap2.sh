@@ -31,7 +31,7 @@ BWT_OUTPUT="${LOCAL_OUTPUT}/minimap2"
 S3DBPATH=${S3DBPATH%/*}
 SAMPLE_NAME=$(basename ${fastq})
 
-mkdir -p "${OUTPUTDIR}" "${LOCAL_OUTPUT}" "${LOG_DIR}" "${RAW_FASTQ}" 
+mkdir -p "${OUTPUTDIR}" "${LOCAL_OUTPUT}" "${LOG_DIR}" "${RAW_FASTQ}"
 mkdir -p "${LOCAL_DB_PATH}" "${BWT_OUTPUT}" "${TMP_BWT_OUTPUT}"
 trap '{ rm -rf ${OUTPUTDIR} ; exit 255; }' 1
 
@@ -66,8 +66,8 @@ samtools view \
 
 # Remove PCR duplicates
 samtools sort -n -o ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam -O BAM -@ ${coreNum} ${TMP_BWT_OUTPUT}/${OUTPUT_PREFIX}.bam
-samtools markdup -s -S ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam  ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.markdup.bam
-samtools index ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.markdup.bam
+#samtools markdup -s -S ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam  ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.markdup.bam
+samtools index ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam
 
 ######################### HOUSEKEEPING #############################
 DURATION=$((SECONDS - START_TIME))
