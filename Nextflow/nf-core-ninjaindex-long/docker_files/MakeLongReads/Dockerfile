@@ -19,14 +19,12 @@ RUN apt-get update && \
     apt-get purge && \
     rm -rf /var/lib/apt/lists/* /tmp/*
 
-RUN conda install -c bioconda -y picard bbmap
+RUN conda install -c bioconda -y bbmap
 RUN conda clean -ya
 
 RUN mkdir -p /mnt
 WORKDIR /mnt
 
-#RUN wget https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz
-#RUN tar zxf artbinmountrainier2016.06.05linux64.tgz
 
 #RUN curl https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz --output - | tar xz
 WORKDIR /mnt
