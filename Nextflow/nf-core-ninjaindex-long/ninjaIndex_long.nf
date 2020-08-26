@@ -196,7 +196,7 @@ process long_fastq {
   input:
   file fna from genomes_ch2
   output:
-  file "tmp_*/Sync/fastq/${fna.baseName}.perfect_long.fastq.gz" into long_fq
+  file "tmp_*/Sync/fastq/${fna.baseName}.fastq.gz" into long_fq
 
   script:
   """
