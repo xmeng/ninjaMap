@@ -65,7 +65,7 @@ samtools view \
 
 
 # Remove PCR duplicates
-samtools sort -n -o ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam -O BAM -@ ${coreNum} ${TMP_BWT_OUTPUT}/${OUTPUT_PREFIX}.bam
+samtools sort -o ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam -O BAM -@ ${coreNum} ${TMP_BWT_OUTPUT}/${OUTPUT_PREFIX}.bam
 #samtools markdup -s -S ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam  ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.markdup.bam
 samtools index ${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.bam
 
