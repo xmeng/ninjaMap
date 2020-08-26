@@ -29,5 +29,5 @@ WORKDIR /mnt
 #RUN curl https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz --output - | tar xz
 WORKDIR /mnt
 
-ADD run_longtreads.sh /usr/local/bin/run_longtreads.sh
-RUN chmod +x /usr/local/bin/run_longtreads.sh
+ADD run_longreads.sh /usr/local/bin/run_longreads.sh
+RUN chmod +x /usr/local/bin/run_longreads.sh
