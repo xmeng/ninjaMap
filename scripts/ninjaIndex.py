@@ -350,6 +350,17 @@ class Parser:
 
     @staticmethod
     def read_bam_file(bamfile_name, bins):
+        '''
+        ###############################################################################
+        The pipeline by which this BAM file is created, it will not allow to write a
+        read that could only be aligned to it's own source strain. Since a read
+        MUST belong to at least the source strain. This means that during processing
+        of this BAM file, if we come across a read that can only be aligned to one 
+        strain, it would be safe to assume that this alignment is to a different 
+        strain than the source and the read can actually be attributed to 2 different
+        strains. This means that a read hits 1 strain becomes 2; 2 becomes 3 and so on ...
+        ###############################################################################
+        '''
         total_reads = 0
         read_objects = defaultdict()
         perfect_alignment = defaultdict(lambda: defaultdict(int))
@@ -399,7 +410,7 @@ class Parser:
 
                         SeqIO.write(fasta, fasta_output , "fasta")
 
-        return (bins, all_strain_obj, fasta_filename)
+        return (bins, all_strain_obj)
 
     @staticmethod
     def create_bin_map(all_strain_obj, binmap_file):
@@ -421,6 +432,7 @@ class Parser:
                         str(contig_len) +'\n'
             binmap.write(line)
         binmap.close()
+
 ###############################################################################
 # Parse the genome fasta files.
 ###############################################################################
@@ -433,13 +445,15 @@ for filename in os.listdir(fastafile_dir):
     if os.path.isfile(full_filename) and filename.endswith(fasta_ext):
         fastafile_names.append(full_filename)
 
-bins, all_strain_obj, cat_fasta_filename = Parser.get_db_metadata(fastafile_names, fasta_file)
+bins, all_strain_obj = Parser.get_db_metadata(fastafile_names, fasta_file)
 strains_list = all_strain_obj.keys()
 Strains.total_strains = len(all_strain_obj.keys())
 logging.info('\t%d contigs assigned to %d strains', len(bins.keys()), Strains.total_strains)
+
 ###############################################################################
 # Parse the BAM file
-###############################################################################
+
+
 logging.info('Processing the BAM file: %s ...', bamfile_name)
 read_objects = defaultdict()
 Reads.total_reads_aligned, perfect_alignment, read_objects = Parser.read_bam_file(bamfile_name, bins)
@@ -491,7 +505,7 @@ if len(read_objects.keys()) != Reads.reads_w_perfect_alignments:
     logging.critical('Read %d reads with perfect alignments, but created %d read objects. There is something fishy going on here...',
     Reads.reads_w_perfect_alignments,
     len(read_objects.keys())
-    )    
+    )
     sys.exit()
 ###############################################################################
 # Processing the reads that mapped exclusively to a single strain
