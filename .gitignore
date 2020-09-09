@@ -1,5 +1,7 @@
 .vscode
-aegea_batch_submit.txt
+*.txt
 .DS_Store
 __pycache__
 *.yml
+*.profraw
+*.json
