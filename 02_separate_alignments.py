@@ -108,11 +108,15 @@ if __name__ == '__main__':
     # Parse the filtered alignmant table to get Primary and Escrow Reads
     ###############################################################################
     logging.info('Separating data into Singular and Escrow Data frames ...')
-    primary_reads_list, escrow_reads_list = nm.identify_primary_and_escrow_reads(filtered_table_file, 
+    primary_reads_dict, escrow_reads_dict = nm.identify_primary_and_escrow_reads(filtered_table_file, 
                                                                         prefix = prefix, paired = paired)
 
+    logging.info('Testing "coverage by contig" using concurrent futures (multiprocessing) ...')
+    nm.calculate_coverage_from_bam(bamfile_name, all_strain_obj, primary_reads_dict, output_dir, num_cores)
+    sys.exit(1)
+
     logging.info('Separating data into Singular and Escrow BAM files ...')
-    primary_bam, escrow_bam = nm.split_bam_by_readtype(bamfile_name, bins, primary_reads_list, escrow_reads_list, 
+    primary_bam, escrow_bam = nm.split_bam_by_readtype(bamfile_name, bins, primary_reads_dict, escrow_reads_dict, 
                                                             prefix = prefix, paired = paired, by='coord',
                                                             cores = num_cores, memPerCore = mem_per_core, log = logging)
 
@@ -130,3 +134,4 @@ if __name__ == '__main__':
     logging.info('Calculating Contig coverage using Escrow reads ...')
     # pandas_write_csv compressed
     nm.calculate_coverage(escrow_bam, output_dir).to_csv(f'{prefix}.escrow_coverage.csv.gz', index=False)
+    logging.info('Done.')
