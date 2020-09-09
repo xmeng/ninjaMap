@@ -77,15 +77,17 @@ def sam2bam(samfile_name, sort_by='coord', cores = 4):
     subprocess.run(f'samtools view -h -b -@ {cores} -o {bamfile_name} {samfile_name}', shell=True, check=True)
     sorted_bam = sort_and_index(bamfile_name, by=sort_by)
     # TODO: return a header file and a dataframe of SAM file
-    # os.remove(samfile_name)
+    os.remove(samfile_name)
     return sorted_bam
 
 def calculate_coverage(bamfile_name, output_dir):
-    os.makedirs(f'{output_dir}/tmp', exist_ok=True)
+    tmp_dir = f'{output_dir}/tmp'
+    os.makedirs(tmp_dir, exist_ok=True)
     pybedtools.set_tempdir(f'{output_dir}/tmp')
     bed = pybedtools.BedTool(bamfile_name)
     df = bed.genome_coverage(dz = True).to_dataframe(names=['contig','pos', 'depth'])
     pybedtools.cleanup()
+    os.rmdir(tmp_dir)
     return df
 
 def calculate_detailed_coverage(bamfile_name, outputdir):

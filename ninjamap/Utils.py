@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 
+import concurrent.futures
 import gzip
+import math
+import operator
 import os
 import sys
+import time
 from collections import Counter, defaultdict
-import math
+from functools import partial, reduce
+
 import numpy as np
 import pandas as pd
 # import pybedtools
 import pysam
 from Bio import SeqIO
-from functools import partial, reduce 
-import operator
 
 import ninjamap.Tools as tools
 from ninjamap.Alignments import Alignments
@@ -210,7 +213,7 @@ def filter_bam(bamfile_name, min_id, min_aln_len,
         # removed until_eof due to pysam trying to keep bam file in memory.
         for alignment in bamfile.fetch(contig=contig):
             aln = Alignments(alignment, paired)
-            # Don't bother is the NM tag was not found.
+            # Don't bother is the NM tag was not found => read was not aligned.
             if not aln.is_aln:
                 continue
 
@@ -268,44 +271,65 @@ def mate_recruitment(df):
         .reset_index()
         .groupby('read_basename')
         .agg(
-            genomes_intersection = ('genomes_set', intersect)
+            genomes_intersection = ('genomes_set', intersect),
+            orientation_set = ('orientation', lambda x: set(x))
         )
         .reset_index()
     )
     set_df['num_genomes'] = set_df['genomes_intersection'].apply(len)
+    set_df['num_strands'] = set_df['orientation_set'].apply(len)
 
-    return set_df[['read_basename','num_genomes']]
+    return set_df[['read_basename','num_genomes','num_strands']]
 
 def identify_primary_and_escrow_reads(whole_table_file, prefix, paired):
     df = pd.read_csv(whole_table_file)
     required_columns = ['read_basename', 'orientation','genome_name']
     assert(all(col in df.columns for col in required_columns)),"Missing required column"
 
-    if paired:
-        agg_df = mate_recruitment(df)
-    else:
-        agg_df = (df[['read_basename', 'genome_name']]
-                    .groupby("read_basename")
-                    .agg(
-                        num_genomes = ('genome_name', 'nunique')
-                    ).reset_index()
-                )
+    agg_df = mate_recruitment(df)
+    # else:
+    #     agg_df = (df[['read_basename', 'genome_name']]
+    #                 .groupby("read_basename")
+    #                 .agg(
+    #                     num_genomes = ('genome_name', 'nunique')
+    #                 ).reset_index()
+    #             )
 
-    primary_df = filter_by_readnames(df, agg_df['read_basename'][agg_df.num_genomes == 1])
-    escrow_df = filter_by_readnames(df, agg_df['read_basename'][agg_df.num_genomes > 1])
+    primary_reads_dict, escrow_reads_dict = calculate_read_weights(agg_df, paired)
+
+    primary_df = filter_by_readnames(df, primary_reads_dict)
+    escrow_df = filter_by_readnames(df, escrow_reads_dict)
 
     primary_df.to_csv(f'{prefix}.ninjaMap.primary.csv.gz', index=False)
     escrow_df.to_csv(f'{prefix}.ninjaMap.escrow.csv.gz', index=False)
 
-    primary_reads_series = set(primary_df.read_basename.unique())
-    escrow_reads_series = set(escrow_df.read_basename.unique())
+    # primary_reads_series = set(primary_df.read_basename.unique())
+    # escrow_reads_series = set(escrow_df.read_basename.unique())
 
-    common_reads_error = intersection(primary_reads_series, escrow_reads_series)
+    common_reads_error = intersection(primary_reads_dict, escrow_reads_dict)
     if len(common_reads_error) > 0:
         print(f'[FATAL] {common_reads_error} reads were present in both Primary and Escrow.\nPlease report this incidence to the developer.')
         sys.exit(1)
 
-    return(primary_reads_series, escrow_reads_series)
+    return(primary_reads_dict, escrow_reads_dict)
+
+def calculate_read_weights(df, paired):
+    primary_weights = defaultdict(float)
+    escrow_weights = defaultdict(float)
+    
+    max_weight = 2 if paired else 1
+
+    for row in df.itertuples(index=False):
+        max_read_set_weight = row.num_strands / max_weight
+        if row.num_genomes == 1:
+            primary_weights[row.read_basename] = max_read_set_weight / row.num_genomes
+        elif row.num_genomes > 1:
+            escrow_weights[row.read_basename] = max_read_set_weight / row.num_genomes
+        else:
+            print('ERROR: Unassigned read found! How is this possible?!')
+            sys.exit(1)
+
+    return (primary_weights, escrow_weights)
 
 def write2sam(row, sam_handle):
     # remove empty elements from the list
@@ -316,7 +340,7 @@ def write2sam(row, sam_handle):
     return
 
 # TESTED - WORKS
-def split_bam_by_readtype(bamfile_name, bin, primary_list, escrow_list, 
+def split_bam_by_readtype(bamfile_name, bin, primary_dict, escrow_dict, 
                 prefix, paired, log, by='coord', cores=4, memPerCore=4):
     log.info(f'\tConverting BAM file, {bamfile_name} to SAM')
     samfile = tools.bam2sam(bamfile_name, cores = cores)
@@ -366,10 +390,10 @@ def split_bam_by_readtype(bamfile_name, bin, primary_list, escrow_list,
     log.info(f'\t\t[TMP] Retained {num_rows} rows and {num_cols} cols from SAM file without headers.')
     
     for row in sam_df.itertuples(index=False):
-        if row.col_1 in primary_list:
+        if row.col_1 in primary_dict:
             # read is primary
             write2sam(row,primary_samhandle)
-        elif row.col_1 in escrow_list:
+        elif row.col_1 in escrow_dict:
             # read is escrow
             write2sam(row,escrow_samhandle)
         else:
@@ -386,6 +410,51 @@ def split_bam_by_readtype(bamfile_name, bin, primary_list, escrow_list,
 def calculate_coverage(bamfile_name, output_dir):
     return tools.calculate_coverage(bamfile_name, output_dir)
 
+def calculate_coverage_from_bam(bamfile_name, all_strain_obj, read_weights_dict, output_dir, min_qual, cores):
+    for strain in all_strain_obj:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=cores) as executor:
+            # results = [executor.submit(calculate_coverage_per_contig(bamfile_name, read_weights_dict, output_dir, contig) for contig in bins.keys())]
+            results = [executor.submit(calculate_coverage_per_contig, bamfile_name, read_weights_dict, output_dir, min_qual, strain, contig) for contig in strain.contigs.keys()]
+
+            for result in concurrent.futures.as_completed(results):
+                print(f"{result.result()}")
+    
+# def calculate_coverage_per_contig(bamfile_name,screen_dict,output_dir,contig):
+def calculate_coverage_per_contig(bamfile_name, read_weights_dict, output_dir, minQual, strain, contig):
+    with pysam.AlignmentFile(bamfile_name, mode = 'rb') as bamfile:
+        check_read = partial(keep_read, read_dict=read_weights_dict)
+        contig_length = strain.contigs[contig]
+        # https://pysam.readthedocs.io/en/latest/api.html#pysam.AlignmentFile.count_coverage
+        counts = bamfile.count_coverage(contig,
+                                        start = 0,
+                                        end = contig_length,
+                                        read_callback = check_read,
+                                        quality_threshold = minQual)
+            # def add_contig(self, contig_name, contig_length):
+            #         self.contigs[contig_name] = contig_length
+            #         self.genome_size += contig_length
+            #         self.num_contigs += 1
+        depth_array = np.add(counts[0],counts[1],counts[2],counts[3])
+        for i in range(0, contig_length):
+            ref_pos = i+1
+            ref_allele = contig.seq[i]
+            
+            # count_a = counts[0][i]
+            # count_c = counts[1][i]
+            # count_g = counts[2][i]
+            # count_t = counts[3][i]
+            # row = [contig, ref_pos, ref_allele, depth, count_a, count_c, count_g, count_t]
+            # out_file.write('\t'.join([str(_) for _ in row])+'\n')
+            # aln_stats['genome_length'] += 1
+            # aln_stats['total_depth'] += depth
+            if depth_array[i] > 0: aln_stats['covered_bases'] += 1
+    return (bamfile_name, len(read_weights_dict), output_dir, contig)
+
+def keep_read(aln, read_dict):
+    if aln.query_name in read_dict:
+        return True
+    else:
+        return False
 ##################################
 # 03_calculate_abundance.py
 ##################################
