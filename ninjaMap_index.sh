@@ -43,7 +43,7 @@ export NUMEXPR_MAX_THREADS="${coreNum}" # required for numpy
 
 # S3DBPATH="s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Index/20180725/scv1/db/"
 # REFDBNAME="uniform10x_ninjaIndex.ninjaIndex"
-# BINMAP_FILENAME="uniform10x_ninjaIndex.ninjaIndex.binmap.csv"
+# STRAIN_MAP_FILENAME="uniform10x_ninjaIndex.ninjaIndex.binmap.csv"
 
 S3DBPATH=${S3DBPATH:-"s3://czbiohub-microbiome/ReferenceDBs/NinjaMap/Narrow/20190911/scv2/db/"}
 REFDBNAME=${REFDBNAME:-"20190911_scv2"}
