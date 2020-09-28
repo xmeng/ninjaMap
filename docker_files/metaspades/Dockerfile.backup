@@ -1,0 +1,38 @@
+# Base Image
+FROM continuumio/miniconda3:4.6.14
+LABEL authors="Xiandong Meng" \
+      description="Docker image for Hybrid assembly " \
+      software.name="metaspades" \
+      software.description="SPAdes – St. Petersburg genome assembler – is an assembly toolkit containing various assembly pipelines." \
+      software.website="http://cab.spbu.ru" \
+      container.category="tool"
+
+# Install system-level programs for quast
+#RUN apt-get update && apt-get install -y zlib1g-dev
+
+# Update conda to latest version.
+RUN conda update -n base -c defaults conda
+
+# Install software packages
+RUN conda install -c bioconda -y spades bbmap samtools fastqc
+RUN conda install -c conda-forge -y awscli
+
+# install long reads filter
+RUN conda install -c bioconda filtlong
+
+# Install time and memory usage tool (timem)
+RUN conda install -c jrmadsen -y timemory
+
+#COPY environment.yaml ./
+#RUN conda env create -f environment.yaml && conda clean -a
+
+#RUN /bin/bash -c "source activate quast"
+#ENV PATH /opt/conda/envs/quast/bin:$PATH
+
+ADD run_metaspades.sh /usr/local/bin/run_metaspades.sh
+RUN chmod +x /usr/local/bin/run_metaspades.sh
+
+RUN mkdir -p /mnt
+WORKDIR /mnt
+
+COPY . .

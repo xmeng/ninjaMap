@@ -91,10 +91,6 @@ Channel
   	.ifEmpty { exit 1, "Cannot find matching genomes" }
   	//.println()
 
-genome_files = Channel.fromPath(params.genomes)
-//split it into three channels
-genome_files.into {genomes_ch2; genomes_ch3; genomes_ch4}
-
 
 // Header log info
 log.info nfcoreHeader()
@@ -173,6 +169,11 @@ process get_software_versions {
 	STEP 1.1
     Concatenate the reference genomes into a single fasta file.
 */
+
+genome_files = Channel.fromPath(params.genomes)
+//split it into three channels
+genome_files.into {genomes_ch2; genomes_ch3; genomes_ch4}
+
 
 genomes_combined = Channel
     			.fromPath(params.genomes)
