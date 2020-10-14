@@ -196,6 +196,8 @@ def vector_difference(array1, array2, nan_value=np.nan):
 
     ## if any nucl(ATGC) at a position is NA remove that position and
     ## calculate the length of the vector
+    ## Replaced: Too aggressive, removes positions where other nucleotides
+    ## may have legit values.
     # diff_no_na = diff[~np.isnan(diff).any(axis=1)]
 
     ## if all nucl(ATGC) at a position are NAs remove that position and
