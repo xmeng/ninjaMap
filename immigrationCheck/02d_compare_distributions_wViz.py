@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+import math
 
 import matplotlib
 import numpy as np
@@ -127,7 +128,7 @@ def summary_stats(d, cutoff=0.002):
             "Non_NA_Length": d_prime_len,
             "Non_Zero_Length": len(d_prime[d_prime != 0]),
             "Extreme_Positions": len(d_prime[abs(d_prime) == 1]),
-            "Within_Threshold": len(d_prime[abs(d_prime) < cutoff]),
+            "Nucl_Within_Threshold": len(d_prime[abs(d_prime) < cutoff]),
             "Min": np.nanmin(d_prime),
             "Max": np.nanmax(d_prime),
             "Mean": np.nanmean(d_prime),
@@ -151,7 +152,7 @@ def summary_stats(d, cutoff=0.002):
             "Non_NA_Length": d_prime_len,
             "Non_Zero_Length": nan_value,
             "Extreme_Positions": nan_value,
-            "Within_Threshold": nan_value,
+            "Nucl_Within_Threshold": nan_value,
             "Min": nan_value,
             "Max": nan_value,
             "Mean": nan_value,
@@ -185,7 +186,7 @@ def summary_stats_select(d, cutoff=0.002):
             "Non_NA_Length": d_prime_len,
             "Non_Zero_Length": len(d_prime[d_prime != 0]),
             "Extreme_Positions": len(d_prime[abs(d_prime) == 1]),
-            "Within_Threshold": len(d_prime[abs(d_prime) < cutoff]),
+            "Nucl_Within_Threshold": len(d_prime[abs(d_prime) < cutoff]),
             "Skew": stats.skew(d_prime, nan_policy="omit"),
             "Kurtosis": stats.kurtosis(d_prime, nan_policy="omit"),
         }
@@ -199,7 +200,7 @@ def summary_stats_select(d, cutoff=0.002):
             "Non_NA_Length": d_prime_len,
             "Non_Zero_Length": nan_value,
             "Extreme_Positions": nan_value,
-            "Within_Threshold": nan_value,
+            "Nucl_Within_Threshold": nan_value,
             "Skew": nan_value,
             "Kurtosis": nan_value,
         }
@@ -294,20 +295,9 @@ def visualizing_differences(diff_vector, selected_pos, axs):
     loaded_diff = np.load(diff_vector)
     base_name = title.split("_vs_")[0]
     query_name = title.split("_vs_")[1]
-    # print(selected_pos.shape)
-    # masking doesn't seem to work with matplotlib
-    # masked_diff = ma.array(
-    #     loaded_diff, mask=np.logical_not(selected_pos), fill_value=np.nan
-    # )
-    # masked_diff = np.ma.masked_where(np.logical_not(selected_pos), loaded_diff)
-    # loaded_diff[selected_pos] = np.nan
-    # print(loaded_diff.shape)
-    # plot_diff_hist(axs, loaded_diff, title)
 
     masked_diff = loaded_diff[selected_pos]
-    # print(masked_diff.shape)
     plot_diff_hist(axs, masked_diff, title)
-    # return summary_stats(masked_diff).update({"Base": base_name, "Query": query_name})
     stat_dict = summary_stats_select(masked_diff)
     stat_dict.update({"Base": base_name, "Query": query_name, "Sample": title})
     return stat_dict
@@ -323,6 +313,15 @@ def within_limits(array, cutoff):
         # When comparing, nan always returns False.
         # return values as 0/1
         return (abs(loaded) < cutoff).astype(int)
+
+
+def get_diff_stdev(array_paths, selected_idx):
+    # Add absolute values of differences
+    cumulative_diff = np.array(
+        [subset_on_indices(abs(np.load(array)), selected_idx) for array in array_paths]
+    )
+    cum_diff = np.nansum(cumulative_diff, axis=0)
+    return np.nanstd(cum_diff)
 
 
 def select_conserved_positions(arrays, method="majority", cutoff=0.002):
@@ -380,13 +379,20 @@ def get_conserved_positions(arr_paths, method, cutoff=0.002, cores=None):
     find conserved positions based on all combinations of N-1 arrays
     assign scores to each conserved position based on it's occurance in each combination
 
+
     Args:
-        arr ([type]): [description]
+        arr_paths ([type]): [description]
         method ([type]): [description]
+        cutoff (float, optional): [description]. Defaults to 0.002.
+        cores ([type], optional): [description]. Defaults to None, meaning "all available".
+
+    Returns:
+        [type]: [description]
     """
     num_arr = len(arr_paths)
     arr_combinations = list()
     logging.info(f"Found {num_arr} arrays")
+
     # based on all combinations of N-1 arrays
     index_combinations = list(itertools.combinations(range(num_arr), num_arr - 1))
     for idx_combo in index_combinations:
@@ -401,39 +407,75 @@ def get_conserved_positions(arr_paths, method, cutoff=0.002, cores=None):
             for arr_sub in arr_combinations
         ]
         for f in concurrent.futures.as_completed(future):
-            result = f.result()
-            all_selected_indices.append(result.astype(int))
+            selected_index = f.result()
+            all_selected_indices.append(selected_index.astype(int))
 
-    selected_idx, pos_stats = pick_longest(all_selected_indices)
-    summary = ";\t".join([f"{k}:{pos_stats[k]}" for k in sorted(pos_stats.keys())])
-    logging.info(f"[Leave One Out]: {summary}")
+    selected_idx, selected_idx_err = pick_best_set(all_selected_indices, arr_paths)
+
+    if selected_idx is None:
+        logging.info(
+            "Could not find any stable positions in controls, possibly due to lack of breadth or depth of coverage. Exiting ..."
+        )
+        sys.exit(0)
 
     selected_idx_num = np.sum(selected_idx)
     logging.info(
-        f"[Leave One Out] Method: {method}, Shape:{selected_idx.shape}, Num_Positions:{selected_idx_num}"
+        f"[Leave One Out] Method: {method}, Shape:{selected_idx.shape}, Num_Positions:{selected_idx_num}, Standard Error={selected_idx_err}"
     )
 
-    return (selected_idx.astype("bool"), pos_stats)
+    return selected_idx.astype("bool")
 
 
-def pick_longest(arr):
-    """[summary]
+def pick_best_set(selected_idx_array, diff_paths):
+    """Pick the array set with the lowest std err (std / sqrt(sel_pos_len))
+        if not std err can be calculated, pick longest.
 
     Args:
-        arr ([type]): [description]
+        selected_idx_array (list): list of geneome X 4 (nucleotides) numpy arrays with boolean values for selected positions
+        diff_paths (list):  paths to numpy diff arrays of same shape as each array in selected_idx_array
 
     Returns:
-        [type]: [description]
+        tuple: (selected_idx, selected_idx_stderr)
     """
-    all_lengths = [np.sum(a) for a in arr]
-    pos_stats = {
-        "Min": np.nanmin(all_lengths),
-        "Max": np.nanmax(all_lengths),
-        "Mean": np.nanmean(all_lengths),
-        "Std_Dev": np.nanstd(all_lengths),
-        "Variance": np.nanvar(all_lengths),
-    }
-    return (arr[np.argmax(all_lengths)], pos_stats)
+
+    # apply selected idx and calculate std err across all samples.
+    all_std = [
+        get_diff_stdev(diff_paths, selected_idx) for selected_idx in selected_idx_array
+    ]
+
+    all_lengths = [np.sum(a) for a in selected_idx_array]
+    by_std_err = np.full_like(all_std, np.nan)
+    by_len = np.zeros_like(all_std)
+    for idx, l in enumerate(all_lengths):
+        if (l > 0) and (all_std[idx] > 0):
+            by_std_err[idx] = all_std[idx] / np.sqrt(l)
+        elif (l > 0) and (all_std[idx] == 0):
+            by_len[idx] = l
+        elif l == 0:
+            continue
+
+    best_pick_idx = np.nan
+    if not np.all(np.isnan(by_std_err)):
+        best_pick_idx = np.nanargmin(by_std_err)
+    elif any(by_len > 0):
+        best_pick_idx = np.nanargmax(by_len)
+
+    # logging.info(f"Best Pick Index: {best_pick_idx}")
+    if np.isnan(best_pick_idx):
+        return (None, None)
+    else:
+        selected_arr_stderr = by_std_err[best_pick_idx]
+        selected_arr_length = all_lengths[best_pick_idx]
+        logging.info(
+            f"Selected indices have a length of {selected_arr_length} and stderr of {selected_arr_stderr}"
+        )
+        logging.info(
+            f"Other Lengths were: {','.join([str(l) for i, l in enumerate(all_lengths) if i != best_pick_idx])}"
+        )
+        logging.info(
+            f"Other StdErrs were: {','.join([str(se) for i, se in enumerate(by_std_err) if i != best_pick_idx])}"
+        )
+        return (selected_idx_array[best_pick_idx], selected_arr_stderr)
 
 
 def read_list_file(list_file):
@@ -442,123 +484,401 @@ def read_list_file(list_file):
     return paths
 
 
-def infer_week_and_mouse(sample_name):
-    valid_format = r"W\d+M\d+"
-    p = re.compile(valid_format)
-    if p.match(sample_name):
+def infer_week_and_source(sample_name):
+    week = np.nan
+    source = np.nan
+
+    source_format = r"W\d+M\d+"
+    m = re.compile(source_format)
+
+    patient_format = r"Pat\d+"
+    p = re.compile(patient_format)
+
+    comm_format = r"Com\d+"
+    c = re.compile(comm_format)
+
+    if m.match(sample_name):
         week_fmt = re.compile(r"^W\d+")
         week = week_fmt.search(sample_name).group().replace("W", "")
 
-        mouse_fmt = re.compile(r"M\d+")
-        mouse = mouse_fmt.search(sample_name).group().replace("M", "")
-        return week, mouse
-    else:
-        return np.nan, np.nan
+        source_fmt = re.compile(r"M\d+")
+        source = source_fmt.search(sample_name).group()
+    elif p.match(sample_name):
+        week = 0
+        source = p.search(sample_name).group()
+    elif c.match(sample_name):
+        week = 0
+        source = c.search(sample_name).group()
+
+    return week, source
 
 
-def get_col_mean_median(df, column):
-    # col_arr = df[[column]].to_numpy()
-    # col_mean = np.nanmean(col_arr)
-    # col_median = np.nanmedian(col_arr)
+def get_array_stats(a):
+    array = a.flatten()
+    (col_sum, col_mean, col_median, col_std) = [np.nan] * 4
 
-    col_mean = df.loc[:, column].mean(skipna=True)
-    col_median = df.loc[:, column].median(skipna=True)
+    col_sum = np.nansum(array)
+    if col_sum > 0:
+        col_mean = np.nanmean(array)
+        col_median = np.nanmedian(array)
+        col_std = np.nanstd(array)
 
-    return col_mean, col_median
+    return col_sum, col_mean, col_median, col_std
 
 
-def selected_pos_depths(csv_file, informative_pos):
+def subset_on_indices(array, bool_idx):
+    return np.where(bool_idx, array, np.full_like(array, np.nan))
+
+
+def selected_pos_depths(query, depth_profile, informative_pos):
     # Find all positions where at least one nucleotide has a value
     selected_pos_idx = np.sum(informative_pos, axis=1) > 0
     selected_pos_len = len(selected_pos_idx)
+    total_selected_pos = np.sum(selected_pos_idx)
+    logging.info(f"Calculating depths for informative positions from {query} ...")
 
-    data_frame = pd.read_csv(
-        csv_file,
-        header=0,
-        usecols=["ref_depth", "total_depth"],
-        dtype={"ref_depth": "float", "total_depth": "float",},
-    )
+    # data_frame = pd.read_csv(
+    #     depth_profile,
+    #     header=0,
+    #     usecols=["A", "C", "G", "T", "total_depth"],
+    #     dtype={"A": "int", "C": "int", "G": "int", "T": "int", "total_depth": "float",},
+    # )
 
-    og_ref_mean, og_ref_median = get_col_mean_median(data_frame, "ref_depth")
-    og_total_mean, og_total_median = get_col_mean_median(data_frame, "total_depth")
+    nucl_depth, pos_depth = get_depth_vectors(depth_profile)
 
-    genome_len, _ = data_frame.shape
+    # Nucleotides
+    # n_depth_arr = subset_on_indices(nucl_depth, informative_pos)
+    # logging.info(f"{nucl_depth.shape}, {informative_pos.shape}")
+    (
+        selected_nt_total,
+        selected_nt_mean,
+        selected_nt_median,
+        selected_nt_std,
+    ) = get_array_stats(nucl_depth[informative_pos])
+
+    (
+        unselected_nt_total,
+        unselected_nt_mean,
+        unselected_nt_median,
+        unselected_nt_std,
+    ) = get_array_stats(nucl_depth[~informative_pos])
+
+    # Positions
+    _, og_total_mean, og_total_median, og_total_std = get_array_stats(pos_depth)
+
+    genome_len = len(pos_depth)
     assert (
         selected_pos_len == genome_len
     ), f"Arrays do not have the same shape ({selected_pos_len} vs {genome_len}). Can't compare."
 
-    selected_df = data_frame[selected_pos_idx]
-    sel_ref_mean, sel_ref_median = get_col_mean_median(selected_df, "ref_depth")
-    sel_total_mean, sel_total_median = get_col_mean_median(selected_df, "total_depth")
+    non_zero_depth_pos = pos_depth > 0
+    bases_covered = np.sum(non_zero_depth_pos)
+    genome_cov = 100 * bases_covered / float(genome_len)
 
-    logging.info(
-        f"{og_ref_mean}, {og_ref_median},"
-        f"{og_total_mean}, {og_total_median},"
-        f"{sel_ref_mean}, {sel_ref_median},"
-        f"{sel_total_mean}, {sel_total_median}"
-    )
-    return (
-        sel_ref_mean,
-        sel_ref_median,
-        sel_total_mean,
-        sel_total_median,
-        og_ref_mean,
-        og_ref_median,
-        og_total_mean,
-        og_total_median,
+    selected_pos_depth = pos_depth[selected_pos_idx]
+    _, sel_total_mean, sel_total_median, sel_total_std = get_array_stats(
+        selected_pos_depth
     )
 
+    filled_selected_pos = selected_pos_depth > 0
+    selected_positions_found = np.sum(filled_selected_pos)
 
-def get_selected_pos_raw_data(init_profiles_file, informative_pos):
-    df = pd.read_table(
-        init_profiles_file, header=None, names=["Query", "S3Path"], index_col=["Query"]
+    selected_positions_found_perc = np.nan
+    if total_selected_pos > 0:
+        selected_positions_found_perc = (
+            100 * selected_positions_found / float(total_selected_pos)
+        )
+
+    # Of the positions that have nucl values (filled_selected_pos),
+    # how many nucl values per position?
+    nucl_per_pos = np.nan
+    if selected_positions_found > 0:
+        nucl_depth_binary_idx = nucl_depth > 0
+        nucl_per_pos_array = np.sum(nucl_depth_binary_idx, axis=1)
+
+        nucl_per_pos = np.sum(nucl_per_pos_array[selected_pos_idx]) / float(
+            selected_positions_found
+        )
+
+    sel_coef_of_var = np.nan
+    if sel_total_mean > 0:
+        sel_coef_of_var = sel_total_std / sel_total_mean
+    perc_genome_selected = 100 * selected_positions_found / float(genome_len)
+
+    # logging.info(
+    #     f"{genome_len}, {genome_cov}, {nucl_per_pos}, {total_selected_pos}, {selected_positions_cov}, "
+    #     f"{selected_positions_cov_perc}, {perc_genome_selected}, {sel_coef_of_var}, "
+    #     f"{sel_total_mean}, {sel_total_median}, {sel_total_std},"
+    #     f"{og_total_mean}, {og_total_median}, {og_total_std}, "
+    # )
+    return {
+        "Query": query,
+        "S3Path": depth_profile,
+        "Ref_Genome_Len": genome_len,
+        "Ref_Genome_Cov": genome_cov,
+        "Nucl_Per_Pos": nucl_per_pos,
+        "Pos_Selected_Searched": total_selected_pos,
+        "Pos_Selected_Found": selected_positions_found,
+        "Pos_Perc_Selected_Found": selected_positions_found_perc,
+        "Pos_Perc_Genome_Selected": perc_genome_selected,
+        "Pos_Selected_Coef_of_Var": sel_coef_of_var,
+        "Pos_Selected_Mean_Depth": sel_total_mean,
+        "Pos_Selected_Median_Depth": sel_total_median,
+        "Pos_Selected_Stdev_Depth": sel_total_std,
+        "Pos_All_Genome_Mean_Depth": og_total_mean,
+        "Pos_All_Genome_Median_Depth": og_total_median,
+        "Pos_All_Genome_Stdev_Depth": og_total_std,
+        "Nucl_Selected_CumSum_Depth": selected_nt_total,
+        "Nucl_Selected_Mean_Depth": selected_nt_mean,
+        "Nucl_Selected_Median_Depth": selected_nt_median,
+        "Nucl_Selected_Stdev_Depth": selected_nt_std,
+        "Nucl_Unselected_CumSum_Depth": unselected_nt_total,
+        "Nucl_Unselected_Mean_Depth": unselected_nt_mean,
+        "Nucl_Unselected_Median_Depth": unselected_nt_median,
+        "Nucl_Unselected_Stdev_Depth": unselected_nt_std,
+    }
+
+
+def parallelize_selected_pos_raw_data(depth_paths_df, informative_pos, cores):
+    assert (
+        "Query" in depth_paths_df.columns
+    ), "Missing required column in depth path file: 'Query'"
+    assert (
+        "S3Path" in depth_paths_df.columns
+    ), "Missing required column in depth path file: 'S3Path'"
+
+    list_of_results = list()
+    with concurrent.futures.ProcessPoolExecutor(max_workers=cores) as executor:
+        future = [
+            executor.submit(
+                selected_pos_depths, row.Query, row.S3Path, informative_pos,
+            )
+            for row in depth_paths_df.itertuples()
+        ]
+        for f in concurrent.futures.as_completed(future):
+            result = f.result()
+            # logging.info(f"Saving results for {result['Query_name']}")
+            list_of_results.append(result)
+
+    return pd.DataFrame(list_of_results).set_index(["Query"])
+
+
+def get_depth_vectors(depth_profile):
+    data_frame = pd.read_csv(
+        depth_profile,
+        header=0,
+        usecols=["A", "C", "G", "T", "total_depth"],
+        dtype={"A": "int", "C": "int", "G": "int", "T": "int", "total_depth": "float",},
     )
+    genome_size, _ = data_frame.shape
+    nucl_depth_vector = np.zeros((genome_size, 4))
+    total_depth_vector = np.zeros(genome_size)
+
+    # per Position
+    nucl_depth_vector = data_frame[["A", "C", "G", "T"]].to_numpy()
+    total_depth_vector = data_frame[["total_depth"]].to_numpy()
+
+    return nucl_depth_vector, total_depth_vector
+
+
+def get_extreme_pos_depth(diff_vector, depth_profile, informative_pos, values=None):
+    if values is None:
+        values = [0, 1]
+
+    title = os.path.basename(diff_vector).split(".")[1]
+    # base_name = title.split("_vs_")[0]
+    query_name = title.split("_vs_")[1]
+
+    logging.info(f"Calculating depth at extreme positions for {query_name}...")
+
+    return_dict = {"Query": query_name}
+
+    for value in values:
+        value_dict = get_specific_diff_depth(
+            diff_vector, depth_profile, informative_pos, value
+        )
+        return_dict.update(value_dict)
+
+    return return_dict
+
+
+def get_specific_diff_depth(diff_vector, depth_profile, informative_pos, value):
     (
-        df["Selected_Pos_Mean_Ref_Depth"],
-        df["Selected_Pos_Median_Ref_Depth"],
-        df["Selected_Pos_Mean_Total_Depth"],
-        df["Selected_Pos_Median_Total_Depth"],
-        df["Whole_Genome_Mean_Ref_Depth"],
-        df["Whole_Genome_Median_Ref_Depth"],
-        df["Whole_Genome_Mean_Total_Depth"],
-        df["Whole_Genome_Median_Total_Depth"],
-    ) = zip(*df["S3Path"].apply(lambda x: selected_pos_depths(x, informative_pos)))
+        total_nucl_reads,
+        mean_nucl_reads,
+        sd_nucl_reads,
+        total_reads,
+        mean_reads,
+        sd_reads,
+    ) = [np.nan] * 6
+    diff_vector_loaded = np.load(diff_vector)
+    nucl_idx = abs(diff_vector_loaded) == value
+    value_idx = np.sum(nucl_idx, axis=1) > 0
 
-    logging.info(f"{df.head()}")
+    if np.sum(value_idx) == 0:
+        return {
+            f"Pos_Read_Support_Total_at_{value}": total_reads,
+            f"Pos_Read_Support_Mean_at_{value}": mean_reads,
+            f"Pos_Read_Support_Stdev_at_{value}": sd_reads,
+            f"Nucl_Read_Support_Total_at_{value}": total_nucl_reads,
+            f"Nucl_Read_Support_Mean_at_{value}": mean_nucl_reads,
+            f"Nucl_Read_Support_Stdev_at_{value}": sd_nucl_reads,
+        }
 
-    return df
+    nucl_depth_vector, total_depth_vector = get_depth_vectors(depth_profile)
+
+    # Selected Postions Nucleotide Depth
+    selected_nucl_depth = nucl_depth_vector[nucl_idx & informative_pos]
+
+    # selected_nucl_depth = np.sum(selected_nucl_depth_vector, axis=1)
+    (total_nucl_reads, mean_nucl_reads, _, sd_nucl_reads) = get_array_stats(
+        selected_nucl_depth
+    )
+
+    # Selected Postion Total Depth
+    selected_pos_idx = np.sum(informative_pos, axis=1) > 0
+    selected_pos_depth = total_depth_vector[value_idx & selected_pos_idx]
+
+    # One read is counted once for each position, but may have been counted many times
+    # over across multiple adjecent positions
+    total_reads = np.nansum(selected_pos_depth)
+    if total_reads > 0:
+        mean_reads = np.nanmean(selected_pos_depth)
+        sd_reads = np.nanstd(selected_pos_depth)
+
+    (total_reads, mean_reads, _, sd_reads) = get_array_stats(selected_pos_depth)
+
+    return {
+        f"Pos_Read_Support_Total_at_{value}": total_reads,
+        f"Pos_Read_Support_Mean_at_{value}": mean_reads,
+        f"Pos_Read_Support_Stdev_at_{value}": sd_reads,
+        f"Nucl_Read_Support_Total_at_{value}": total_nucl_reads,
+        f"Nucl_Read_Support_Mean_at_{value}": mean_nucl_reads,
+        f"Nucl_Read_Support_Stdev_at_{value}": sd_nucl_reads,
+    }
 
 
-def save_predictions(list_of_df, output_file, selected_pos_depth):
-    stats_df = pd.DataFrame(list_of_stats)
-    # .to_csv(f"{prefix}.02d_stats.csv", index=False)
-    output_cols = [
-        "Organism",
-        "Sample",
-        "Mouse",
-        "Week",
-        "Extreme_Positions",
-        "Selected_Pos_Mean_Ref_Depth",
-        "Selected_Pos_Median_Ref_Depth",
-        "Selected_Pos_Mean_Total_Depth",
-        "Selected_Pos_Median_Total_Depth",
-        "Whole_Genome_Mean_Ref_Depth",
-        "Whole_Genome_Median_Ref_Depth",
-        "Whole_Genome_Mean_Total_Depth",
-        "Whole_Genome_Median_Total_Depth",
-        "Prediction",
-    ]
+def save_predictions(
+    stats_df, read_support_df, output_file, selected_pos_depth, prefix
+):
+    selected_pos_depth.drop(["S3Path"], inplace=True, axis=1)
+    output_cols = (
+        ["Organism", "Sample", "Source", "Week", "Extreme_Positions", "Prediction",]
+        + list(selected_pos_depth.columns)
+        + list(read_support_df.columns)
+    )
+    stats_df = stats_df.join(
+        selected_pos_depth, on="Query", how="left", rsuffix="_other"
+    )
+    stats_df = stats_df.join(read_support_df, on="Query", how="left", rsuffix="_other")
+
     stats_df["Organism"] = prefix
-    stats_df["Week"], stats_df["Mouse"] = zip(
-        *stats_df["Query"].apply(infer_week_and_mouse)
+    stats_df["Week"], stats_df["Source"] = zip(
+        *stats_df["Query"].apply(infer_week_and_source)
     )
-    stats_df["Prediction"] = stats_df["Extreme_Positions"].apply(
-        lambda x: "Invader" if x > 0 else "Input"
+    stats_df["Prediction"] = stats_df.apply(
+        lambda row: get_extreme_prediction(row), axis=1
+    )
+    # logging.info(f"Saving data frame with the following columns:\n\t{output_cols}")
+    stats_df.to_csv(output_file, index=False, columns=output_cols)
+
+
+def get_extreme_prediction(row):
+    num_extreme_positions = row.Extreme_Positions
+
+    prediction = "Unclear"
+
+    if np.isnan(num_extreme_positions):
+        prediction = "Unclear"
+    elif num_extreme_positions > 0:
+        prediction = "Invader"
+    elif num_extreme_positions == 0:
+        prediction = "Input"
+    else:
+        prediction = "Error"
+
+    return prediction
+
+
+def prob_extreme_pos(exp_extreme_pos, fraction_min_depth):
+    # ln p = f*S*ln (1-N/S) ~ -f*S*N/S = -f*N
+    logP = -fraction_min_depth * exp_extreme_pos
+    return logP
+
+
+def pos_frac_combinations(fraction_min_depth, possible_extreme_pos):
+    # log(N!) = N * math.log(N) - N
+    # C = S!/[(f*S)!((1-f)*S)!]
+    log_factorial = lambda N: N * math.log(N) - N
+    logC = log_factorial(possible_extreme_pos) - (
+        log_factorial(fraction_min_depth * possible_extreme_pos)
+        + log_factorial((1 - fraction_min_depth) * possible_extreme_pos)
     )
 
-    stats_df.join(selected_pos_depth, on="Query", how="left", rsuffix="_other").to_csv(
-        output_file, index=False, columns=output_cols
+    return logC
+
+
+def invader_probability(obs_cons_pos, exp_cons_pos, missed_extrm_pos):
+    """
+    If you have S conserved positions, and you actually observe O = (S-q) of
+    them due to some having low coverage, then calculate the probability that 
+    you picked a set of O that avoid the N positions that could be extreme 
+    positions
+
+    # S = expected conserved positions
+    # O = observed conserved positions
+    # q = conserved positions not found (S - O)
+    # N = number of missed extreme pos
+    # p = (S-N)!/S! * q!/(q-N)!
+    # Using stirling approximation:
+    # p = exp(log(S)*(-N)+N*N*1./S+log(factorial(q)*1./factorial(q-N)))
+
+    Args:
+        obs_cons_pos (int): observed conserved positions or "selected positions found"
+        exp_cons_pos (int): expected conserved positions or "selected positions"
+        missed_extrm_pos (int): calculate the probability for this many missing extreme pos
+
+    Returns:
+        float: probability for this many missing extreme positions
+    """
+    if (exp_cons_pos == 0) or np.isnan(exp_cons_pos):
+        return np.nan
+
+    if np.isnan(obs_cons_pos):
+        return np.nan
+
+    # q = S - O
+    missed_conserved_pos = exp_cons_pos - obs_cons_pos
+
+    # # If we found all the positions, it's probably an Input.
+    # if missed_conserved_pos == 0:
+    #     return 0
+
+    # Stirling approximation
+    stirling_aprx = lambda N: N * math.log(N) - N if N > 1 else 1
+    logP = (
+        stirling_aprx(exp_cons_pos - missed_extrm_pos)
+        - stirling_aprx(exp_cons_pos)
+        + stirling_aprx(missed_conserved_pos)
+        - stirling_aprx(missed_conserved_pos - missed_extrm_pos)
     )
+    try:
+        p = math.exp(logP)
+    except OverflowError:
+        p = float("inf")
+    return p
+
+
+def missed_invader_probability(
+    exp_extreme_pos, possible_extreme_pos, fraction_min_depth
+):
+    logP = prob_extreme_pos(exp_extreme_pos, fraction_min_depth)
+    logC = pos_frac_combinations(fraction_min_depth, possible_extreme_pos)
+    try:
+        q = math.exp(logP + logC)
+    except OverflowError:
+        q = float("inf")
+    return q
 
 
 if __name__ == "__main__":
@@ -568,6 +888,7 @@ if __name__ == "__main__":
 
     prefix = sys.argv[1]
     method = sys.argv[2]
+    # All files have samples in the same order
     control_profiles = sys.argv[3]
     sample_profiles = sys.argv[4]
     init_profiles = sys.argv[5]
@@ -575,25 +896,24 @@ if __name__ == "__main__":
     cutoff = 0.002
     cores = 10
 
-    if method not in ["intersection", "union", "majority"]:
-        logging.error(f"Method '{method}' not recognized. Exiting")
-        sys.exit(1)
+    assert method.lower() in ["intersection", "union", "majority"], logging.error(
+        f"Method '{method}' not recognized. Exiting"
+    )
+    # if method not in ["intersection", "union", "majority"]:
+    #     logging.error(f"Method '{method}' not recognized. Exiting")
+    #     sys.exit(1)
 
     control_array_paths = read_list_file(control_profiles)
-    informative_pos, position_stats = get_conserved_positions(
+    informative_pos = get_conserved_positions(
         control_array_paths, method=method, cutoff=cutoff, cores=cores
     )
     # np.save(f"{prefix}.{method}.informative_pos.npy", informative_pos)
-    pos_depth_df = get_selected_pos_raw_data(init_profiles, informative_pos)
-
-    with open(f"{prefix}.02d_loo_pos_stats.tsv", "w") as filehandle:
-        header = "\t".join([f"{k}" for k in sorted(position_stats.keys())])
-        filehandle.write(f"{header}\n")
-
-        summary = "\t".join(
-            [f"{position_stats[k]}" for k in sorted(position_stats.keys())]
-        )
-        filehandle.write(f"{summary}\n")
+    depth_profiles_df = pd.read_table(
+        init_profiles, header=None, names=["Query", "S3Path"]
+    )
+    pos_depth_df = parallelize_selected_pos_raw_data(
+        depth_profiles_df, informative_pos, cores=cores
+    )
 
     if np.sum(informative_pos) == 0:
         logging.info(
@@ -608,17 +928,46 @@ if __name__ == "__main__":
 
     # Setup matplotlib figures
     all_array_paths = control_array_paths + query_array_paths
+
+    # Parallelize extreme position read support (depth) calculations for each mouse
+    read_support_list = list()
+    with concurrent.futures.ProcessPoolExecutor(max_workers=cores) as executor:
+        future = [
+            executor.submit(
+                get_extreme_pos_depth,
+                diff_vector,
+                depth_profiles_df["S3Path"][idx],
+                informative_pos,
+            )
+            for idx, diff_vector in enumerate(all_array_paths)
+        ]
+        for f in concurrent.futures.as_completed(future):
+            result = f.result()
+            # logging.info(f"Saving results for {result['Query_name']}")
+            read_support_list.append(result)
+
+    extreme_read_support_df = pd.DataFrame(read_support_list).set_index(["Query"])
+
     num_comparisons = len(all_array_paths)
     logging.info(f"Making {num_comparisons} comparisons ...")
     plot_height = int(num_comparisons * 10)
     plt.rcParams["figure.figsize"] = (45, plot_height)
 
     figure, hist_axs = plt.subplots(num_comparisons, 1, sharex=True, sharey=True)
-    list_of_stats = [
-        visualizing_differences(diff_vector, informative_pos, hist_axs[idx])
-        for idx, diff_vector in enumerate(all_array_paths)
-    ]
-    save_predictions(list_of_stats, f"{prefix}.02d_stats.csv", pos_depth_df)
+    stats_df = pd.DataFrame(
+        [
+            visualizing_differences(diff_vector, informative_pos, hist_axs[idx])
+            for idx, diff_vector in enumerate(all_array_paths)
+        ]
+    )
+
+    save_predictions(
+        stats_df,
+        extreme_read_support_df,
+        f"{prefix}.02d_stats.csv",
+        pos_depth_df,
+        prefix,
+    )
 
     hist_plot = f"{prefix}.02d_hist_plot.png"
     logging.info(f"Saving histogram figure to disk as: {hist_plot}")
