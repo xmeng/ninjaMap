@@ -7,8 +7,8 @@ nextflow run -resume main.nf --genomes 's3://czbiohub-microbiome/Xiandong_Meng/t
 #Run original ninjaIndex pipeline with one merged BAM file
 nextflow run -resume origin.nf --genomes 's3://czbiohub-microbiome/Xiandong_Meng/test/3genomes/*.fna' --outdir 's3://czbiohub-microbiome/Xiandong_Meng/test10' -profile czbiohub_aws
 
-#Run upgraded ninjaIndex pipeline with multiple BAM files
-nextflow run -resume origin_multiBams.nf --genomes 's3://czbiohub-microbiome/Xiandong_Meng/test/3genomes/*.fna' --outdir 's3://czbiohub-microbiome/Xiandong_Meng/test10' -profile czbiohub_aws
+#Run upgraded ninjaIndex pipeline with multiple BAM files ( latest version )
+nextflow run -resume ~/gitdir/ninjaMap/Nextflow/nf-core-ninjaindex/origin_multiBams.nf --genomes 's3://czbiohub-microbiome/Xiandong_Meng/test/3genomes/*.fna' --outdir 's3://czbiohub-microbiome/Xiandong_Meng/test10' -profile czbiohub_aws
 
 # Run test case
 nextflow run main.nf -profile test
