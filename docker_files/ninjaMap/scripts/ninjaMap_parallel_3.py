@@ -97,7 +97,7 @@ usage = """
     python ninjaMap.py \
 -bam input_bamfile \
 -bin tab-delimited file with Col1= contig name and Col2=Bin/Strain name \
--out abundance table output
+-out abundance table output \
 -log logfile.txt
     """
 
@@ -107,7 +107,7 @@ p = argparse.ArgumentParser(
     usage=argparse.SUPPRESS,
     description="""Description:
 This script will calculate the abundance of a strain in a defined microbial community.
-Usage: ninjaMap.py -bam name_sorted.bam -bin contig_strain_assignments.tsv -out abundance_table_output.tsv
+Usage: ninjaMap.py -bam name_sorted.bam -bin ninjaIndex.binmap.csv -prefix test -outdir run_dir
 """,
     epilog="""Examples:
 python ninjaMap.py -bin contig_names_bin_map.txt -bam Bacteroides-sp-9-1-42FAA/Bacteroides-sp-9-1-42FAA.processed.sortedByCoord.bam -prefix Bacteroides-sp-9-1-42FAA
@@ -221,7 +221,7 @@ class Strains:
 
         self.read_fraction = 0
 
-        self.covered_bases = set()
+        self.covered_bases = [] #set()
         self.contigs = defaultdict(int)
         self.singular_bin = defaultdict(int)
         self.escrow_bin = defaultdict(int)
@@ -268,10 +268,16 @@ class Strains:
         self.escrow_covered_bases += read_template_len
 
     def _add_covered_base(self, contig_name, contig_pos):
-        unique_contig_name = contig_name+'_'+str(contig_pos)
+        # split contig name by 1st occurrence
+        contig_num = contig_name.split("_", 1)
+        unique_contig_name = contig_num[1] +'_'+str(contig_pos)
+        #unique_contig_name = contig_name +'_'+str(contig_pos)
+        #self.covered_bases.add(unique_contig_name)
+        self.covered_bases.append(unique_contig_name)
         # encode the contig name then compress it
-        unique_contig_name_encoded = unique_contig_name.encode()
-        self.covered_bases.add(zlib.compress(unique_contig_name_encoded))
+        #unique_contig_name_encoded = unique_contig_name.encode()
+        #self.covered_bases.append(zlib.compress(unique_contig_name_encoded))
+        #self.covered_bases.add(zlib.compress(unique_contig_name_encoded))
 
     def calculate_singular_coverage (self, bamfile_name):
         if self.num_singular_reads == 0:
@@ -281,6 +287,9 @@ class Strains:
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         strain_set_filename = self.name +'.baseset'
         output_baseset_filename = os.path.join(output_tmp, strain_set_filename)
+        f=open( output_baseset_filename, "wb" )
+        dump_count = 0
+        dump_element=0
 
         for contig_name in self.contigs.keys():
             for pileupcolumn in cov_bamfile.pileup(contig = contig_name, stepper = 'all', min_base_quality = 20):
@@ -290,15 +299,23 @@ class Strains:
 
                     if base_cov_contribution > 0:
                         # self.uniquely_covered_bases += 1
-                        if ((len(self.covered_bases) > 50000)):
-                            pickle.dump( self.covered_bases, open( output_baseset_filename, "wb" ) )
+                        if ((len(self.covered_bases) >= 500000)):
+                            pickle.dump( self.covered_bases, f)
                             self.covered_bases.clear()
+                            dump_count +=1
+                            dump_element +=500000
+
                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
                         self.uniquely_covered_depth += base_cov_contribution
 
         cov_bamfile.close()
 
-        pickle.dump( self.covered_bases, open( output_baseset_filename, "wb" ) )
+        pickle.dump( self.covered_bases, f )
+        dump_element += len(self.covered_bases)
+        self.covered_bases.clear()
+        f.close()
+
+        print (self.name, dump_count+1, dump_element)
         #print (self.name, sys.getsizeof(self.covered_bases), len(self.covered_bases))
         #if (self.uniquely_covered_depth > 2147483647 or len(self.covered_bases) >2147483647 or self.total_covered_depth > 2147483647 or self.weighted_base_depth>2147483647):
         #    print (self.uniquely_covered_depth, self.name, len(self.covered_bases), self.total_covered_depth, self.weighted_base_depth )
@@ -313,8 +330,11 @@ class Strains:
             return
         mycovered_bases_set = set()
         # load the saved baseset file first
-        strain_set_filename = self.name +'.baseset'
+        strain_set_filename = self.name +'.baseset'+'_2'
         input_baseset_filename = os.path.join(output_tmp, strain_set_filename)
+        f=open( input_baseset_filename, "wb" )
+        dump_count=0
+        dump_element=0
 
         cov_bamfile = pysam.AlignmentFile(bamfile_name, mode = 'rb')
         for contig_name in self.contigs.keys():
@@ -328,9 +348,11 @@ class Strains:
 
                     if base_cov_contribution > 0:
                         # self.escrow_covered_bases += 1
-                        if ((len(self.covered_bases) > 500000)):
-                            pickle.dump( self.covered_bases, open( input_baseset_filename, "wb" ) )
+                        if ((len(self.covered_bases) >= 500000)):
+                            pickle.dump( self.covered_bases, f )
                             self.covered_bases.clear()
+                            dump_count +=1
+                            dump_element +=500000
 
                         self._add_covered_base(contig_name, pileupcolumn.reference_pos)
                         self.escrow_covered_depth += base_cov_contribution
@@ -345,8 +367,12 @@ class Strains:
         #                break
                 #mycovered_bases_set  = pickle.load( open( input_baseset_filename, "rb" ) )
         #    self.covered_bases.update(mycovered_bases_set)
-        pickle.dump( self.covered_bases, open( input_baseset_filename, "wb" ) )
+        pickle.dump( self.covered_bases, f )
+        dump_element += len(self.covered_bases)
+        self.covered_bases.clear()
+        f.close()
 
+        print (self.name, dump_count+1, dump_element)
         #print (self.name, sys.getsizeof(self.covered_bases), len(self.covered_bases))
         # Save the added set info
         #output_baseset_filename = os.path.join(output_tmp, strain_set_filename)
@@ -895,20 +921,23 @@ for res in result:
         (myuniquely_covered_depth, mystrain_name, mycovered_length, mytotal_covered_depth, myweighted_base_depth ) = res.get()
         if not ( myuniquely_covered_depth is None):
             all_strain_obj[mystrain_name].uniquely_covered_depth  += myuniquely_covered_depth
-        if not (mycovered_length is None):
-            input_baseset_filename = mycovered_length
-            mycovered_bases_set = set()
-            if os.path.isfile( input_baseset_filename ):
-                with open(input_baseset_filename, 'rb') as f:
-                    while True:
-                        try:
-                            mycovered_bases_set.update(pickle.load(f))
-                        except EOFError:
-                            break
-                #mycovered_bases_set  = pickle.load( open( input_baseset_filename, "rb" ) )
-                all_strain_obj[mystrain_name].covered_length  = len(mycovered_bases_set)
-                print (mystrain_name, len(mycovered_bases_set))
-                #all_strain_obj[mystrain_name].covered_length = mycovered_length   #.covered_bases.update( mycovered_bases_set ) #.add(mycovered_bases)
+        if (0)  :
+            if not (mycovered_length is None):
+                input_baseset_filename = mycovered_length
+                mycovered_bases_set = set()
+                #mycovered_bases_list = [] #set()
+                if os.path.isfile( input_baseset_filename ):
+                    with open(input_baseset_filename, 'rb') as f:
+                        while True:
+                            try:
+                                mycovered_bases_set.update(pickle.load(f))
+                            except EOFError:
+                                break
+                    #mycovered_bases_set  = pickle.load( open( input_baseset_filename, "rb" ) )
+                    #mycovered_bases_set = set(mycovered_bases_list)
+                    all_strain_obj[mystrain_name].covered_length  = len(mycovered_bases_set)
+                    #print (mystrain_name, len(mycovered_bases_set))
+                    #all_strain_obj[mystrain_name].covered_length = mycovered_length   #.covered_bases.update( mycovered_bases_set ) #.add(mycovered_bases)
         if not (mytotal_covered_depth is None):
             all_strain_obj[mystrain_name].total_covered_depth += mytotal_covered_depth
         if not (myweighted_base_depth is None):
@@ -1024,7 +1053,9 @@ if singular_fraud_alert or escrow_fraud_alert:
 ###############################################################################
 
 logging.info('Computing depth and coverage for each strain in the database based on escrow alignments ...')
-
+print("--------------------")
+print("Computing Escrow depth and coverage")
+print("--------------------")
 abundance_df = pd.DataFrame()
 stats_df = pd.DataFrame()
 i = 0
@@ -1045,18 +1076,35 @@ for res in result2:
         if not (myescrow_covered_depth is None):
             all_strain_obj[mystrain_name].escrow_covered_depth += myescrow_covered_depth
         if not (mycovered_length is None):
-            input_baseset_filename = mycovered_length
+            file_name = mycovered_length.split("_2")
+            input_baseset_filename1 = file_name[0]
             mycovered_bases_set = set()
-            if os.path.isfile( input_baseset_filename ):
-                with open(input_baseset_filename, 'rb') as f:
+            #mycovered_bases_list = [] #set()
+            if os.path.isfile( input_baseset_filename1 ):
+                with open(input_baseset_filename1, 'rb') as f:
                     while True:
                         try:
-                            mycovered_bases_set.update(pickle.load(f) )
+                            mycovered_bases_set.update(pickle.load(f))
                         except EOFError:
                             break
+                f.close()
+            #print (mystrain_name, len(mycovered_bases_set))
+
+            input_baseset_filename2 = mycovered_length
+            #mycovered_bases_set = set()
+            #mycovered_bases_list = [] #set()
+            if os.path.isfile( input_baseset_filename2 ):
+                with open(input_baseset_filename2, 'rb') as f:
+                    while True:
+                        try:
+                            mycovered_bases_set.update(pickle.load(f))
+                        except EOFError:
+                            break
+                f.close()
                 #mycovered_bases_set  = pickle.load( open( input_baseset_filename, "rb" ) )
-                all_strain_obj[mystrain_name].covered_length  += len(mycovered_bases_set)
-                print (mystrain_name, len(mycovered_bases_set))
+                #mycovered_bases_set = set(mycovered_bases_list)
+            all_strain_obj[mystrain_name].covered_length  = len(mycovered_bases_set)
+            #print (mystrain_name, len(mycovered_bases_set))
             #all_strain_obj[mystrain_name].covered_length = mycovered_length #.covered_bases.update( mycovered_bases_set2 )
         if not (mytotal_covered_depth is None):
             all_strain_obj[mystrain_name].total_covered_depth = mytotal_covered_depth

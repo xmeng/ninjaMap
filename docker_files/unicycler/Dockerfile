@@ -3,7 +3,7 @@ FROM continuumio/miniconda3:4.6.14
 LABEL authors="Xiandong Meng" \
       description="Docker image for Hybrid assembly " \
       software.name="unicycler" \
-      software.description="Unicycler is an assembly pipeline for bacterial genomes." \
+      software.description="Unicycler (0.4.8) is an assembly pipeline for bacterial genomes." \
       software.website="https://github.com/rrwick/Unicycler" \
       container.category="tool"
 
@@ -14,9 +14,9 @@ LABEL authors="Xiandong Meng" \
 RUN conda update -n base -c defaults conda
 
 # Install unicycler
-RUN conda install -c conda-forge -y awscli bc perl python=3.7
-RUN conda install -c bioconda -y unicycler=0.4.8 bbmap=38.73 samtools fastqc filtlong quast bowtie2 minimap2 qualimap tgsgapcloser java-jdk perl-bioperl
-
+RUN conda install --freeze-installed -c conda-forge -y awscli bc perl python=3.7 \
+  && conda install --freeze-installed -c bioconda -y unicycler=0.4.8 bbmap=38.73 samtools fastqc filtlong quast bowtie2 minimap2 qualimap tgsgapcloser java-jdk perl-bioperl \
+  && conda clean -afy
 
 #RUN conda install -c bioconda -y unicycler bbmap samtools fastqc quast filtlong python=3
 
@@ -33,8 +33,8 @@ RUN conda update --all
 COPY pilon /opt/conda/share/pilon-1.23-1/pilon
 COPY pilon /opt/conda/share/pilon-1.23-2/pilon
 
-ADD run_unicycler_hybrid.sh /usr/local/bin/run_unicycler_hybrid.sh
-RUN chmod +x /usr/local/bin/run_unicycler_hybrid.sh
+ADD run_unicycler_hybrid_pacbio.sh /usr/local/bin/run_unicycler_hybrid_pacbio.sh
+RUN chmod +x /usr/local/bin/run_unicycler_hybrid_pacbio.sh
 
 ADD run_unicycler_short_only.sh /usr/local/bin/run_unicycler_short_only.sh
 RUN chmod +x /usr/local/bin/run_unicycler_short_only.sh

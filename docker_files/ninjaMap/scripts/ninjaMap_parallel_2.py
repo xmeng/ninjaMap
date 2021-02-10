@@ -265,9 +265,13 @@ class Strains:
         self.escrow_covered_bases += read_template_len
 
     def _add_covered_base(self, contig_name, contig_pos):
-        unique_contig_name = contig_name+'_'+str(contig_pos)
+        # split contig name by 1st occurrence
+        contig_num = contig_name.split("_", 1)
+        unique_contig_name = contig_num[1] +'_'+str(contig_pos)
+        #unique_contig_name = contig_name+'_'+str(contig_pos)
         #self.covered_bases.add(unique_contig_name)
-        self.covered_bases.append(zlib.compress(unique_contig_name.encode()))
+        self.covered_bases.append(unique_contig_name)
+        #self.covered_bases.append(zlib.compress(unique_contig_name.encode()))
 
     def calculate_singular_coverage (self, bamfile_name):
         if self.num_singular_reads == 0:

@@ -30,7 +30,7 @@ DATABASE="${LOCAL}/db"
 LOCAL_OUTPUT="${OUTPUTDIR}/Sync"
 QC_FASTQ="${LOCAL_OUTPUT}/trimmed_fastq"
 LOG_DIR="${LOCAL_OUTPUT}/Logs"
-ASSEMBLY_OUTPUT="${LOCAL_OUTPUT}/mataSPAdes"
+ASSEMBLY_OUTPUT="${LOCAL_OUTPUT}/metaSPAdes"
 QUAST_OUTPUT="${LOCAL_OUTPUT}/quast"
 FASTQC_OUTPUT="${LOCAL_OUTPUT}/fastqc-filtering"
 FASTQC_OUTPUT2="${LOCAL_OUTPUT}/fastqc-decontamination"
@@ -93,7 +93,7 @@ in2="${QC_FASTQ}/read2_trimmed.fastq.gz" \
 out="${QC_FASTQ}/deduped-interleaved_trimmed.fastq.gz" \
 s=5 e=3
 
-#Run fastqc for deduped short reads 
+#Run fastqc for deduped short reads
 fastqc \
 -t ${coreNum} \
 -o ${FASTQC_OUTPUT3} \

@@ -25,14 +25,14 @@ QC_FASTQ="${OUTPUTDIR}/trimmed_fastq"
 
 LOCAL_OUTPUT="${OUTPUTDIR}/Sync"
 LOG_DIR="${LOCAL_OUTPUT}/Logs"
-ASSEMBLY_OUTPUT="${LOCAL_OUTPUT}/mataSPAdes"
-METAQUAST_OUTPUT="${LOCAL_OUTPUT}/metaquast"
+ASSEMBLY_OUTPUT="${LOCAL_OUTPUT}/metaSPAdes"
+QUAST_OUTPUT="${LOCAL_OUTPUT}/quast"
 FASTQC_OUTPUT="${LOCAL_OUTPUT}/fastqc"
 FASTQ_NAME=${fastq1%/*}
 SAMPLE_NAME=$(basename ${FASTQ_NAME})
 
 mkdir -p "${OUTPUTDIR}" "${LOCAL_OUTPUT}" "${LOG_DIR}" "${RAW_FASTQ}" "${QC_FASTQ}"
-mkdir -p "${ASSEMBLY_OUTPUT}" "${METAQUAST_OUTPUT}" "${FASTQC_OUTPUT}"
+mkdir -p "${ASSEMBLY_OUTPUT}" "${QUAST_OUTPUT}" "${FASTQC_OUTPUT}"
 trap '{ rm -rf ${OUTPUTDIR} ; exit 255; }' 1
 
 hash_kmer=${hash_kmer:-51}
@@ -95,7 +95,7 @@ quast \
 --rna-finding \
 --contig-thresholds 1000,5000,10000,25000,50000,100000,250000,500000,1000000 \
 ${ASSEMBLY_OUTPUT}/contigs.fasta \
--o ${METAQUAST_OUTPUT} | tee -a ${LOG_DIR}/quast.log
+-o ${QUAST_OUTPUT} | tee -a ${LOG_DIR}/quast.log
 
 
 ######################### HOUSEKEEPING #############################

@@ -172,6 +172,8 @@ samtools sort \
 # samtools sort -@ ${coreN} -o ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam ${TMP_OUTPUTS}/${SAMPLE_NAME}.bam
 samtools index -@ ${coreN} ${BOWTIE2_OUTPUT}/${OUTPUT_PREFIX}.bam
 
+# rmove unsorted bam file to save space
+rm ${TMP_OUTPUTS}/${SAMPLE_NAME}.bam
 # 3328 =
 #   not primary alignment (0x100)
 #   read is PCR or optical duplicate (0x400)

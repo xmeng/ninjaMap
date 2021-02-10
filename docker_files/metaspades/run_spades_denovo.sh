@@ -176,6 +176,8 @@ samtools index -@ ${coreNum}  "${BWT_OUTPUT}/contigs_aligned.sorted.bam"
 samtools idxstats "${BWT_OUTPUT}/contigs_aligned.sorted.bam" > "${LOG_DIR}/contigs_aligned.idxstats.txt"
 samtools flagstat "${BWT_OUTPUT}/contigs_aligned.sorted.bam" > "${LOG_DIR}/contigs_aligned.flagstat.txt"
 
+rm "${BWT_OUTPUT}/contigs_aligned.sam"
+rm "${BWT_OUTPUT}/contigs_aligned.bam"
 #bamqc
 #qualimap bamqc -outdir "${BAMQC_OUTPUT}" -bam "${BWT_OUTPUT}/contigs_aligned.sorted.bam" -c
 #qualimap bamqc -outdir "${BAMQC_OUTPUT}" -bam "${BWT_OUTPUT}/${OUTPUT_PREFIX}.name_sorted.markdup.bam" -c

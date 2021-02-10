@@ -12,21 +12,22 @@ coreNum=${coreNum:-16}
 ShortTargetBase=${ShortTargetBase:-500000000}
 LongTargetBase=${LongTargetBase:-500000000}
 genomeSize=${genomeSize:-5000000}
-coverage=${coverage:-200}
+coverage=${coverage:-400}
 
 # if the genomeSize is give, then overwrite the TargetBase parameters
 ShortTargetBase=$((genomeSize*coverage*1))
 LongTargetBase=$((genomeSize*coverage*1))
 
-# Make sure neither the short read set nor long read set exceeds the certain limit
-if [ $ShortTargetBase -gt 1990000000 ]
+# Make sure neither the short read set nor long read set exceeds 2000 Mbp
+if [ $ShortTargetBase -gt 2000000000 ]
 then
-   ShortTargetBase=1990000000
+   ShortTargetBase=2000000000
 fi
 
-if [ $LongTargetBase -gt 1990000000 ]
+# Keep more long reads
+if [ $LongTargetBase -gt 2000000000 ]
 then
-   LongTargetBase=1990000000
+   LongTargetBase=2000000000
 fi
 # s3 inputs from env variables
 #fastq1="${1}"
@@ -35,6 +36,8 @@ fi
 #S3OUTPUTPATH="${4}"
 #genomeSize="${5}" genome size in bp
 
+# for inputing existing long reads
+#assembly={6} input existing_long_read_assembly reads in fasta
 
 # Setup directory structure
 OUTPUTDIR=${LOCAL}/tmp_$( date +"%Y%m%d_%H%M%S" )
@@ -47,8 +50,8 @@ LOG_DIR="${LOCAL_OUTPUT}/Logs"
 ASSEMBLY_OUTPUT="${LOCAL_OUTPUT}/UNICYCLER"
 QUAST_OUTPUT="${LOCAL_OUTPUT}/quast"
 FASTQC_OUTPUT="${LOCAL_OUTPUT}/fastqc_illumina"
-FASTQC_OUTPUT2="${LOCAL_OUTPUT}/fastqc_nanopore"
-RAW_NANOPORE="${LOCAL_OUTPUT}/nanopore"
+FASTQC_OUTPUT2="${LOCAL_OUTPUT}/fastqc_pacbio"
+RAW_PACBIO="${LOCAL_OUTPUT}/pacbio"
 #FASTQ_NAME=${fastq1%/*}
 SAMPLE_NAME=$(basename ${S3OUTPUTPATH})
 
@@ -62,7 +65,7 @@ POST_OUTPUT="${LOCAL_OUTPUT}/post-processing"
 
 mkdir -p "${OUTPUTDIR}" "${LOCAL_OUTPUT}" "${LOG_DIR}" "${RAW_FASTQ}" "${QC_FASTQ}" "${POST_OUTPUT}"
 mkdir -p "${ASSEMBLY_OUTPUT}" "${QUAST_OUTPUT}" "${FASTQC_OUTPUT}" "${FASTQC_OUTPUT2}"
-mkdir -p "${LOCAL_DB_PATH}" "${BWT_OUTPUT}"  "${BAMQC_OUTPUT}" "${BAMQC_OUTPUT2}" "${RAW_NANOPORE}"
+mkdir -p "${LOCAL_DB_PATH}" "${BWT_OUTPUT}"  "${BAMQC_OUTPUT}" "${BAMQC_OUTPUT2}" "${RAW_PACBIO}"
 trap '{ rm -rf ${OUTPUTDIR} ; exit 255; }' 1
 
 hash_kmer=${hash_kmer:-51}
@@ -70,17 +73,17 @@ hash_kmer=${hash_kmer:-51}
 # Copy fastq.gz files from S3, only 2 files per sample
 aws s3 cp --quiet ${fastq1} "${RAW_FASTQ}/read1.fastq.gz"
 aws s3 cp --quiet ${fastq2} "${RAW_FASTQ}/read2.fastq.gz"
-aws s3 cp --quiet ${longreads} "${RAW_FASTQ}/long.fastq.gz"
+#aws s3 cp --quiet ${longreads} "${RAW_FASTQ}/long.fastq.gz"
 
-# count the number of PE reads
-#zcat "${RAW_FASTQ}/read1.fastq.gz" | echo $((`wc -l`/2)) > ${LOG_DIR}/illumina_count.txt
-# count the long reads
-#zcat "${RAW_FASTQ}/long.fastq" | echo $((`wc -l`/4)) > ${LOG_DIR}/nanopore_count.txt
-
+# If long reads in bam format
+aws s3 cp --quiet ${longreads} "${RAW_FASTQ}/long.bam"
+samtools bam2fq  "${RAW_FASTQ}/long.bam" | gzip > "${RAW_FASTQ}/long.fastq.gz"
+# copy existing long reads
+#aws s3 cp --quiet ${assembly} "${RAW_FASTQ}/existing_assembly.fa"
 
 ## Collate called bases into a single fastq file
-#aws s3 sync --quiet ${longreads} ${RAW_NANOPORE}
-#find "${RAW_NANOPORE}/*.fastq" | xargs cat > "${RAW_FASTQ}/long.fastq"
+#aws s3 sync --quiet ${longreads} ${RAW_PACBIO}
+#find "${RAW_PACBIO}/*.fastq" | xargs cat > "${RAW_FASTQ}/long.fastq"
 
 #cp  ${fastq1} "${RAW_FASTQ}/read1.fastq.gz"
 #cp  ${fastq2} "${RAW_FASTQ}/read2.fastq.gz"
@@ -138,7 +141,7 @@ min_kmer_value=${min_kmer_value:-11}
 #in1="${QC_FASTQ}/read1_deduped.fastq.gz" \
 #in2="${QC_FASTQ}/read2_deduped.fastq.gz" \
 echo "**************************" >> ${LOG_DIR}/bbtools.log.txt
-echo "Reads trimming/filtering" >> ${LOG_DIR}/bbtools.log.txt
+echo "Reads trimming/Filtering" >> ${LOG_DIR}/bbtools.log.txt
 echo "**************************" >> ${LOG_DIR}/bbtools.log.txt
 bbduk.sh -Xmx16g tbo -eoom hdist=1 qtrim=rl ktrim=r \
     entropy=0.5 entropywindow=50 entropyk=5 \
@@ -168,7 +171,6 @@ timem dedupe.sh -Xmx100g \
         in="${QC_FASTQ}/trimmed-interleaved.fastq.gz" \
         out="${QC_FASTQ}/deduped-interleaved.fastq.gz" \
         >> ${LOG_DIR}/bbtools.log.txt 2>&1
-
 
 # Normalize uneven coverage, depth of under 3x will be presumed to be errors and discarded.
 # target is kmer detpth, not read depth ( read depth = kmer depth * (read length/(read length -kmer size +1 )) )
@@ -215,17 +217,17 @@ fastqc \
 "${QC_FASTQ}/read1_sampled.fastq.gz" \
 "${QC_FASTQ}/read2_sampled.fastq.gz"
 
-
+# convert bam to fastq for long reads
+#samtools bam2fq  "${RAW_FASTQ}/long.bam" >  "${RAW_FASTQ}/long.fastq"
+#Uses kmer counts to error-correct reads.
 echo "**************************"
-echo "Pre-Processing Long reads"
+echo "Long Reads Filtering"
 echo "**************************"
 
 # get long read length Histogram
 readlength.sh in="${RAW_FASTQ}/long.fastq.gz" bin=1000 max=10000 ignorebadquality > ${LOG_DIR}/longreads.LengthHistogram.txt
 
-# convert bam to fastq for long reads
-#samtools bam2fq  "${RAW_FASTQ}/long.bam" >  "${RAW_FASTQ}/long.fastq"
-# filter long reads with reference(short reads) --trim \
+# filter long reads with reference(short reads) --trim \ --target_bases ${LongTargetBase} \ --length_weight 10 \
 filtlong \
 -1 "${QC_FASTQ}/read1_trimmed.fastq.gz" \
 -2 "${QC_FASTQ}/read2_trimmed.fastq.gz" \
@@ -243,13 +245,12 @@ fastqc \
 -o ${FASTQC_OUTPUT2} \
 "${QC_FASTQ}/long_trimmed.fastq.gz"
 
-## Run assembly
-# --contamination lambda nanopore only
+
+## Run assembly --mode bold \
+# --contamination lambda nanopore only --existing_long_read_assembly "${RAW_FASTQ}/existing_assembly.fa" \
 timem unicycler \
 -t ${coreNum} \
---contamination lambda \
 --min_fasta_length 1000 \
---mode bold \
 -1 "${QC_FASTQ}/read1_sampled.fastq.gz" \
 -2 "${QC_FASTQ}/read2_sampled.fastq.gz" \
 -l "${QC_FASTQ}/long_trimmed.fastq.gz" \
@@ -265,11 +266,11 @@ bowtie2-build --seed 42 \
     tee -a ${LOG_DIR}/bowtie2_build_db_index.log
 
 bowtie2 --sensitive-local -p ${coreNum} --seed 42 -x ${LOCAL_DB_PATH}/${LOCAL_DB_NAME} \
--1 "${QC_FASTQ}/read1_sampled.fastq.gz" -2 "${QC_FASTQ}/read2_sampled.fastq.gz" | \
+-1 "${QC_FASTQ}/read1_sampled.fastq.gz" -2 "${QC_FASTQ}/read2_sampled.fastq.gz" |\
 samtools view -@ ${coreNum} -bh -o "${BWT_OUTPUT}/contigs_aligned.bam" - | \
 tee -a ${LOG_DIR}/bowtie2_mapping.log.txt
 
-#-S "${BWT_OUTPUT}/contigs_aligned.sam"
+# -S "${BWT_OUTPUT}/contigs_aligned.sam"
 # index contigs
 #samtools faidx "${ASSEMBLY_OUTPUT}/assembly.fasta"
 # create bam file
@@ -338,6 +339,7 @@ tail -n 1 ${LOG_DIR}/unicycler_assembly.log.txt > ${LOG_DIR}/unicycler_summary.t
 grep -A 15 "^Bridged assembly graph" ${ASSEMBLY_OUTPUT}/unicycler.log >> ${LOG_DIR}/unicycler_summary.txt
 
 
+
 ###############################################################
 # Post-processing if the assembly is incomplete
 ###############################################################
@@ -349,20 +351,20 @@ if grep -q "  incomplete" ${ASSEMBLY_OUTPUT}/unicycler.log; then
     echo "Assembly Post-Processing" >> ${LOG_DIR}/post-processing.log.txt
     echo "**************************" >> ${LOG_DIR}/post-processing.log.txt
 
-      Assembly=${ASSEMBLY_OUTPUT}/assembly.fasta  #"/data/BrianYu/nanopore_hybird/CloseGaps/Blautia-sp-KLE/Blautia-sp-KLE.assembly.fasta"
-      Nanopore_reads="${RAW_FASTQ}/long.fastq.gz" #"/data/BrianYu/nanopore_hybird/CloseGaps/Blautia-sp-KLE/Blautia-sp-KLE-1732-HM-1032__barcode15.fastq.gz"
+      Assembly=${ASSEMBLY_OUTPUT}/assembly.fasta
+      pacbio_reads="${RAW_FASTQ}/long.fastq.gz"
 
       genome=${SAMPLE_NAME} #"Blautia-sp-KLE"
 
       # Align Long reads to drraft assembly
 
-      minimap2 -t 8 $Assembly $Nanopore_reads > ${RAW_FASTQ}/aln.mm
+      minimap2 -t 8 $Assembly $pacbio_reads > ${RAW_FASTQ}/aln.mm
 
       # Form scaffolds
       java -jar /home/gitdir/lrscaf/target/LRScaf-1.1.9.jar -c $Assembly -a ${RAW_FASTQ}/aln.mm -t mm -o ${POST_OUTPUT}/lrscaf_output
 
       #Convert fastq to fasta
-      reformat.sh qin=33 overwrite=t ignorebadquality=t in=$Nanopore_reads out=${RAW_FASTQ}/${SAMPLE_NAME}.fasta
+      reformat.sh qin=33 overwrite=t ignorebadquality=t in=$pacbio_reads out=${RAW_FASTQ}/${SAMPLE_NAME}.fasta
 
 
 
@@ -374,7 +376,7 @@ if grep -q "  incomplete" ${ASSEMBLY_OUTPUT}/unicycler.log; then
           mkdir -p ${POST_OUTPUT}/tgsgapcloser_output
           cd ${POST_OUTPUT}/tgsgapcloser_output
           #
-          tgsgapcloser --scaff ${POST_OUTPUT}/lrscaf_output/scaffolds.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output gaps --ne >gaps.log 2>gaps.err
+          tgsgapcloser --tgstype pb --scaff ${POST_OUTPUT}/lrscaf_output/scaffolds.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output gaps --ne >gaps.log 2>gaps.err
 
           echo "gaps.gap_fill_detail" >> ${LOG_DIR}/post-processing.log.txt
           cat gaps.gap_fill_detail >> ${LOG_DIR}/post-processing.log.txt
@@ -389,7 +391,7 @@ if grep -q "  incomplete" ${ASSEMBLY_OUTPUT}/unicycler.log; then
           # Completeness chcek  Output file: permute_scaffold.fasta
           circ-permute.pl -in ${POST_OUTPUT}/tgsgapcloser_output/gaps.scaff_seqs -split 600
 
-          tgsgapcloser --scaff ${POST_OUTPUT}/circular_output/permute_scaffold.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output circular --ne >circular.log 2>circular.err
+          tgsgapcloser --tgstype pb --scaff ${POST_OUTPUT}/circular_output/permute_scaffold.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output circular --ne >circular.log 2>circular.err
           echo "circular.gap_fill_detail" >> ${LOG_DIR}/post-processing.log.txt
           cat circular.gap_fill_detail >> ${LOG_DIR}/post-processing.log.txt
 
@@ -411,7 +413,7 @@ if grep -q "  incomplete" ${ASSEMBLY_OUTPUT}/unicycler.log; then
           # Completeness chcek  Output file: permute_scaffold.fasta
           circ-permute.pl -in $Assembly -split 600
 
-          tgsgapcloser --scaff ${POST_OUTPUT}/circular_output/permute_scaffold.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output circular --ne >circular.log 2>circular.err
+          tgsgapcloser --tgstype pb --scaff ${POST_OUTPUT}/circular_output/permute_scaffold.fasta --reads ${RAW_FASTQ}/${SAMPLE_NAME}.fasta --output circular --ne >circular.log 2>circular.err
           echo "circular.gap_fill_detail" >> ${LOG_DIR}/post-processing.log.txt
           cat circular.gap_fill_detail >> ${LOG_DIR}/post-processing.log.txt
           echo "---------------------------------" >> ${LOG_DIR}/post-processing.log.txt
