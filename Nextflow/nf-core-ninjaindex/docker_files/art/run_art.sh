@@ -42,6 +42,7 @@ COV_FOLD=${2:-10}
 -f ${COV_FOLD} \
 -m 500 \
 -s 10 \
+-rs 1712 \
 -o "${OUTPUTDIR}/${PREFIX}" &> "${LOG_DIR}.log"
 
 # Get error free reads
