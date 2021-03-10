@@ -228,7 +228,7 @@ process art_fastq {
 
   script:
   """
-  run_art.sh $fna 20
+  run_art.sh $fna 10
   """
 }
 

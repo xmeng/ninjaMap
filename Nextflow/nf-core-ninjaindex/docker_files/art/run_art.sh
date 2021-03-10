@@ -42,15 +42,15 @@ COV_FOLD=${2:-10}
 -f ${COV_FOLD} \
 -m 500 \
 -s 10 \
--o "${PREFIX}" &> "${LOG_DIR}.log"
+-o "${OUTPUTDIR}/${PREFIX}" &> "${LOG_DIR}.log"
 
 # Get error free reads
 #java -jar $PICARD SamToFastq I=${PREFIX}_errFree.sam F=${PREFIX}1.fq F2=${PREFIX}2.fq
-picard SamToFastq I=${PREFIX}_errFree.sam F=${PREFIX}1.fq F2=${PREFIX}2.fq
+picard SamToFastq I="${OUTPUTDIR}/${PREFIX}_errFree.sam" F="${OUTPUTDIR}/${PREFIX}_R1.fq" F2="${OUTPUTDIR}/${PREFIX}_R2.fq"
 
 #compress fastq files
-gzip < ${PREFIX}1.fq > $FWD
-gzip < ${PREFIX}2.fq > $REV
+gzip < "${OUTPUTDIR}/${PREFIX}_R1.fq" > $FWD
+gzip < "${OUTPUTDIR}/${PREFIX}_R2.fq" > $REV
 
 # Sync
 #aws s3 sync ${LOCAL_OUTPUT} ${S3OUTPUTPATH}
