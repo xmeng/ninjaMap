@@ -9,3 +9,4 @@ null/
 aws_trace/
 index.nf
 LATEST
+Nextflow/nf-core-ninjaindex/docker_files/*/LATEST
