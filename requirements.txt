@@ -1,0 +1,11 @@
+numpy
+scipy
+pytest
+numba
+pandas
+pysam
+multiprocessing
+pickle
+zlib
+threading
+SeqIO
