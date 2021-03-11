@@ -4,6 +4,4 @@ pytest
 numba
 pandas
 pysam
-pickle
-zlib
 SeqIO
